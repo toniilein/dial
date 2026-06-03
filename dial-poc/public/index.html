@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DIAL · Phase 0 Web App</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+
+<style>
+  html, body { margin: 0; padding: 0; background: #efece4; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  body { overflow: hidden; }
+  #root { width: 100vw; height: 100vh; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Load order matters: theme → icons → state → shell → screens → modals → app. -->
+<script type="text/babel" src="theme.jsx"></script>
+<script type="text/babel" src="dial-icons.jsx"></script>
+<script type="text/babel" src="dial-state.jsx"></script>
+<script type="text/babel" src="dial-shell.jsx"></script>
+<script type="text/babel" src="dial-screens.jsx"></script>
+<script type="text/babel" src="dial-modals.jsx"></script>
+<script type="text/babel" src="dial-domain-modals.jsx"></script>
+<script type="text/babel" src="dial-app.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+  injectDialStyles();
+  ReactDOM.createRoot(document.getElementById('root')).render(<DialApp />);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# SQLite runtime state (regenerated from the seed on startup)
+dial.db
+dial.db-journal
+dial.db-shm
+dial.db-wal
+
+# OS / editor junk
+.DS_Store
+
+# Backups & logs
+*.bak
+*.log

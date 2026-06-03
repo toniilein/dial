@@ -1,0 +1,2257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DIAL — Requirements & Solution Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-soft: #14171c;
+    --card: #181c22;
+    --border: #262b33;
+    --text: #e7e9ec;
+    --muted: #9aa3ad;
+    --accent: #e60000;        /* Vodafone red */
+    --accent-soft: #ff4d4d;
+    --ok: #3ddc97;
+    --warn: #ffb454;
+    --code-bg: #0f1216;
+    --block-bg: #232a33;
+    --block-border: #353c47;
+    --pill-core-bg: #2d3540;
+    --client-bg: #0a0d12;
+  }
+  body[data-theme="light"] {
+    --bg: #f5f3ec;            /* cream like ENS screenshot */
+    --bg-soft: #ffffff;
+    --card: #ffffff;
+    --border: #d8d4ca;
+    --text: #1a1a1a;
+    --muted: #6b7280;
+    --accent: #e60000;
+    --accent-soft: #b80000;
+    --code-bg: #f3f1ea;
+    --block-bg: #faf8f1;
+    --block-border: #e0dccd;
+    --pill-core-bg: #ffffff;
+    --client-bg: #f8f6ee;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 56px 32px 96px; }
+  header.cover {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 32px; margin-bottom: 32px;
+  }
+  .tag {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    text-transform: uppercase;
+  }
+  h1 {
+    font-size: 44px; line-height: 1.1;
+    margin: 16px 0 8px;
+    font-weight: 800; letter-spacing: -1px;
+  }
+  h1 .dot { color: var(--accent); }
+  h2 {
+    font-size: 26px; margin-top: 56px; margin-bottom: 16px;
+    border-left: 4px solid var(--accent);
+    padding-left: 12px;
+  }
+  h3 { font-size: 18px; margin-top: 32px; margin-bottom: 8px; color: var(--text); }
+  h4 { font-size: 15px; margin: 18px 0 6px; color: var(--accent-soft); text-transform: uppercase; letter-spacing: 1px; }
+  p, li { color: var(--text); }
+  .sub { color: var(--muted); font-size: 16px; max-width: 720px; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .card h4 { margin-top: 0; }
+  table {
+    width: 100%; border-collapse: collapse; margin: 16px 0;
+    font-size: 14px;
+  }
+  th, td { border: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-soft); color: var(--accent-soft); font-weight: 600; }
+  code, pre {
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    font-size: 13px;
+  }
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+  }
+  .mermaid {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0;
+    text-align: center;
+    cursor: zoom-in;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    position: relative;
+  }
+  .mermaid:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(230, 0, 0, 0.25);
+  }
+  .mermaid::after {
+    content: "⤢ click to zoom";
+    position: absolute;
+    top: 8px; right: 12px;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+  }
+  .mermaid:hover::after { opacity: 1; }
+  .lightbox {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    cursor: zoom-out;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox-content {
+    width: 96vw; height: 92vh;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 40px 32px 32px;
+    overflow: auto;
+    position: relative;
+    cursor: zoom-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lightbox-content svg {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+  }
+  .lightbox-close {
+    position: absolute;
+    top: 8px; right: 16px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 32px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+    padding: 4px 12px;
+  }
+  .lightbox-close:hover { color: var(--accent); }
+  /* ENS-style overview diagram (§1) */
+  .dial-overview {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 28px 20px;
+    margin: 24px 0 12px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .dial-overview .do-client {
+    background: var(--client-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    flex: 0 0 200px;
+  }
+  .dial-overview .do-client .do-tag {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .dial-overview .do-client h4 {
+    margin: 8px 0 4px;
+    font-size: 18px;
+    color: var(--text);
+  }
+  .dial-overview .do-client .do-quote {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--muted);
+    margin: 4px 0;
+  }
+  .dial-overview .do-client .do-examples {
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    color: var(--accent-soft);
+    margin-top: 6px;
+  }
+  .dial-overview .do-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 80px;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+  .dial-overview .do-arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dial-overview .do-arrow .num {
+    background: var(--accent);
+    color: #fff;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .dial-overview .do-arrow .lbl {
+    background: rgba(230, 0, 0, 0.12);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 3px 9px;
+    border-radius: 12px;
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    font-size: 11px;
+  }
+  .dial-overview .do-arrow::after {
+    content: "→";
+    color: var(--accent);
+    font-size: 18px;
+    margin-left: 4px;
+  }
+  .dial-overview .do-platform {
+    border: 1.5px dashed var(--accent);
+    border-radius: 10px;
+    padding: 24px 16px 16px;
+    flex: 1;
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 12px;
+  }
+  .dial-overview .do-platform-label {
+    position: absolute;
+    top: -10px;
+    left: 16px;
+    background: var(--bg-soft);
+    padding: 0 8px;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--accent-soft);
+    text-transform: uppercase;
+  }
+  .dial-overview .do-platform-label small {
+    font-style: italic;
+    font-size: 10px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--muted);
+    margin-left: 6px;
+  }
+  .dial-overview .do-contract {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .dial-overview .do-contract .do-ctag {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .dial-overview .do-contract h4 {
+    margin: 4px 0 2px;
+    font-size: 16px;
+    color: var(--text);
+  }
+  .dial-overview .do-contract .do-italic {
+    font-style: italic;
+    color: var(--muted);
+    font-size: 12px;
+    margin: 2px 0;
+  }
+  .dial-overview .do-contract .do-name {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-top: 4px;
+  }
+  .dial-overview .do-contract code {
+    font-size: 10px;
+    color: var(--accent-soft);
+    background: transparent;
+    border: none;
+    padding: 0;
+    display: block;
+    margin-top: 4px;
+  }
+  .dial-overview .do-contract.do-voda {
+    border: 1.5px solid var(--accent);
+    background: rgba(230, 0, 0, 0.06);
+  }
+  .dial-overview .do-network {
+    background: var(--client-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    flex: 0 0 200px;
+  }
+  .dial-overview .do-network .do-tag {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .dial-overview .do-network h4 {
+    margin: 8px 0 4px;
+    font-size: 18px;
+    color: var(--text);
+  }
+  .dial-overview .do-network .do-italic {
+    font-style: italic;
+    color: var(--muted);
+    font-size: 12px;
+    margin: 4px 0 8px;
+  }
+  .dial-overview .do-network ul {
+    margin: 0;
+    padding-left: 16px;
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    color: var(--accent-soft);
+  }
+  .dial-overview .do-network ul li { margin: 2px 0; }
+  /* Simple overview flow (§1) */
+  .overview-flow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin: 24px 0 12px;
+  }
+  .overview-flow .of-step {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    text-align: center;
+    color: var(--text);
+  }
+  .overview-flow .of-step strong { font-size: 14px; font-weight: 600; }
+  .overview-flow .of-step small { display:block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .overview-flow .of-arrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+  }
+  .overview-flow .of-pillars {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .overview-flow .of-pillar {
+    padding: 16px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+  }
+  .overview-flow .of-pillar strong { font-size: 13px; font-weight: 600; }
+  .overview-flow .of-pillar small { font-size: 11px; color: var(--muted); }
+  .overview-flow .of-pillar.highlight {
+    background: rgba(230, 0, 0, 0.08);
+    border: 2px solid var(--accent);
+  }
+  .overview-flow .of-pillar.highlight strong { color: var(--accent-soft); }
+  .overview-flow .of-pillar.voda {
+    background: rgba(230, 0, 0, 0.04);
+    border: 1px solid var(--accent);
+  }
+  .overview-meta {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  /* Collapsible FR subsections */
+  details.fr {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 10px 0;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  details.fr:hover { border-color: rgba(230, 0, 0, 0.4); }
+  details.fr > summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    list-style: none;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  details.fr > summary::-webkit-details-marker { display: none; }
+  details.fr > summary::before {
+    content: "▶";
+    font-size: 10px;
+    color: var(--accent);
+    transition: transform 0.2s;
+    width: 12px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  details.fr[open] > summary::before { transform: rotate(90deg); }
+  details.fr[open] > summary { border-bottom: 1px solid var(--border); }
+  details.fr > table {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+  }
+  details.fr > table th,
+  details.fr > table td {
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  details.fr > table th:last-child,
+  details.fr > table td:last-child {
+    border-right: none;
+  }
+  details.fr > table tr:last-child td {
+    border-bottom: none;
+  }
+  .fr-controls {
+    display: flex;
+    gap: 8px;
+    margin: 16px 0;
+  }
+  .fr-controls button {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: inherit;
+  }
+  .fr-controls button:hover {
+    border-color: var(--accent);
+    color: var(--accent-soft);
+  }
+  /* Collapsible chapters (top-level H2 sections) */
+  details.chapter {
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+  details.chapter > summary {
+    font-size: 26px;
+    font-weight: 600;
+    margin-top: 56px;
+    margin-bottom: 16px;
+    border-left: 4px solid var(--accent);
+    padding: 4px 0 4px 12px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text);
+  }
+  details.chapter > summary::-webkit-details-marker { display: none; }
+  details.chapter > summary::before {
+    content: "▼";
+    font-size: 12px;
+    color: var(--accent);
+    transition: transform 0.2s;
+    width: 14px;
+    flex-shrink: 0;
+  }
+  details.chapter:not([open]) > summary::before {
+    transform: rotate(-90deg);
+  }
+  details.chapter:not([open]) > summary {
+    margin-bottom: 0;
+  }
+  details.chapter > summary:hover {
+    color: var(--accent-soft);
+  }
+  /* Standards alignment map (§6.5) */
+  .std-map {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+  }
+  .std-row {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .std-component {
+    flex: 0 0 190px;
+    background: var(--block-bg);
+    border: 1px solid var(--block-border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+  }
+  .std-component strong { font-size: 14px; color: var(--text); }
+  .std-component span { font-size: 11px; color: var(--muted); }
+  .std-component.voda { border: 1.5px solid var(--accent); }
+  .std-chips {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 0;
+  }
+  .std-chips .chip {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    color: var(--accent-soft);
+  }
+  .std-chips .chip.future {
+    color: var(--muted);
+    border-style: dashed;
+  }
+  /* Theme toggle button */
+  .theme-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  .theme-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent-soft);
+  }
+  /* Custom §6.1 high-level architecture diagram (HTML grid, not mermaid) */
+  .arch61 {
+    margin: 16px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .arch61 .std-chips { margin-top: 10px; padding: 0; }
+  .arch61 .block {
+    background: var(--block-bg);
+    border: 1px solid var(--block-border);
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .arch61 .block.voda {
+    background: rgba(230, 0, 0, 0.10);
+    border: 2px solid var(--accent);
+  }
+  .arch61 .block .title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 12px;
+  }
+  .arch61 .block .title small {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .arch61 .pills {
+    display: grid;
+    gap: 8px;
+  }
+  .arch61 .cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .arch61 .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .arch61 .cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .arch61 .pill {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    text-align: center;
+    font-size: 13px;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .arch61 .pill.core {
+    border-color: var(--accent);
+    background: var(--pill-core-bg);
+    color: var(--text);
+  }
+  .arch61 .pill.core strong { font-weight: 600; color: var(--text); }
+  .arch61 .pill.core span { font-size: 11px; color: var(--muted); }
+  .arch61 .pill.gateway {
+    background: var(--code-bg);
+    border: 1px solid #3a4250;
+    border-radius: 20px;
+    margin: 0 auto 12px;
+    max-width: 260px;
+    padding: 8px 16px;
+    min-height: 32px;
+  }
+  .arch61 .pill.voda {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent-soft);
+    font-weight: 500;
+  }
+  .arch61 .middle {
+    display: grid;
+    grid-template-columns: 1.6fr auto 1fr;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .arch61 .arrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: 18px;
+  }
+  .arch61 .arrow small {
+    display: block;
+    font-size: 11px;
+    margin-top: 4px;
+    color: var(--muted);
+  }
+  .arch61 .arrow-horiz {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: var(--muted);
+    font-size: 18px;
+  }
+  .arch61 .arrow-horiz small {
+    font-size: 11px;
+    margin-top: 4px;
+  }
+  /* §4.0 Functional Map — HTML tree (DIAL on top → 6 groups → function boxes below each) */
+  .ftree { margin: 18px 0; }
+  .ftree-root {
+    width: max-content;
+    margin: 0 auto;
+    background: var(--block-bg);
+    border: 1.5px solid var(--accent);
+    border-radius: 8px;
+    padding: 9px 26px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+    position: relative;
+  }
+  .ftree-root::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1.5px;
+    height: 18px;
+    background: var(--block-border);
+  }
+  .ftree-cols {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 12px;
+    align-items: start;
+    position: relative;
+    margin-top: 36px;
+  }
+  .ftree-cols::before {
+    content: "";
+    position: absolute;
+    top: -18px;
+    left: calc(100% / 12);
+    right: calc(100% / 12);
+    height: 1.5px;
+    background: var(--block-border);
+  }
+  .ftree-col {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    position: relative;
+  }
+  .ftree-col::before {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1.5px;
+    height: 18px;
+    background: var(--block-border);
+  }
+  .ftree-group {
+    box-sizing: border-box;
+    min-height: 62px;
+    display: flex;
+    align-items: center;
+    background: var(--block-bg);
+    border: 1px solid var(--block-border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: left;
+  }
+  .ftree-leaf {
+    position: relative;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 7px 9px;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: left;
+  }
+  .ftree-leaf::before {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 16px;
+    width: 1.5px;
+    height: 13px;
+    background: var(--block-border);
+  }
+  .ftree-id {
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    font-size: 0.82em;
+    font-weight: 600;
+    color: var(--accent-soft);
+    margin-right: 5px;
+  }
+  ul, ol { padding-left: 20px; }
+  ul li, ol li { margin: 4px 0; }
+  .pill {
+    display: inline-block;
+    font-size: 11px; padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .pill.must { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .pill.should { color: var(--warn); border-color: var(--warn); }
+  .pill.could { color: var(--muted); }
+  .toc {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 24px;
+    margin: 24px 0 48px;
+    columns: 2; column-gap: 32px;
+  }
+  .toc a { color: var(--text); text-decoration: none; font-size: 14px; }
+  .toc a:hover { color: var(--accent-soft); }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(230, 0, 0, 0.06);
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout strong { color: var(--accent-soft); }
+  footer {
+    margin-top: 80px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <span class="tag">Product Spec · Draft</span>
+  <h1>DIAL<span class="dot">.</span> Requirements &amp; Solution Architecture</h1>
+  <p class="sub">Phase 0 — <strong>namespace issuance</strong> for developers, enterprises, and consumers. Enterprises register their own corporate domain (e.g. <code>.acme</code>); developers and consumers register names under DIAL's <code>.dial</code> domain. Non-custodial, powered by the <strong>Vodafone Pairpoint Identity Hub</strong>. A name like <code>alice.dial</code> or <code>finance.acme</code> maps to addresses on Canton and an EVM-compatible chain.</p>
+  <p class="meta">Version 0.2 · Draft for review · 2026-05-15</p>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#goals">Goals &amp; Non-Goals</a></li>
+    <li><a href="#personas">Personas</a></li>
+    <li><a href="#fr">Functional Map &amp; Requirements</a></li>
+    <li><a href="#nfr">Non-Functional Requirements</a></li>
+    <li><a href="#arch">Solution Architecture</a></li>
+    <li><a href="#data">Data Model</a></li>
+    <li><a href="#flows">Key User Flows</a></li>
+    <li><a href="#stack">Tech Stack</a></li>
+    <li><a href="#security">Security &amp; Compliance</a></li>
+    <li><a href="#deploy">Deployment &amp; Operations</a></li>
+    <li><a href="#roadmap">Phased Roadmap</a></li>
+    <li><a href="#risks">Risks &amp; Open Questions</a></li>
+  </ol>
+</nav>
+
+<!-- =================================================== -->
+<h2 id="overview">1. Overview</h2>
+
+<h3>What is DIAL?</h3>
+<p>DIAL is a <strong>non-custodial namespace layer for Web3</strong>. A consumer registers a name like <code>alice.dial</code>; an enterprise registers its own corporate domain like <code>.acme</code> and issues names under it (<code>finance.acme</code>, <code>treasury.acme</code>). Each name maps to its owner's addresses on Canton and an EVM-compatible chain. Counterparties send to the name; they don't have to copy 42-character hex strings, and they get a verified identity attached to whatever they're sending to.</p>
+
+<div class="dial-overview">
+  <div class="do-client">
+    <div class="do-tag">CLIENT</div>
+    <h4>Wallet / Dapp</h4>
+    <div class="do-quote">user types "alice.dial"</div>
+  </div>
+
+  <div class="do-platform">
+    <div class="do-platform-label">DIAL Platform</div>
+
+    <div class="do-contract">
+      <div class="do-ctag">SERVICE</div>
+      <h4>Namespace Directory</h4>
+      <div class="do-name">Registry</div>
+    </div>
+
+    <div class="do-contract">
+      <div class="do-ctag">SERVICE</div>
+      <h4>Domain Issuance</h4>
+      <div class="do-name">Registrar</div>
+    </div>
+
+    <div class="do-contract">
+      <div class="do-ctag">SERVICE</div>
+      <h4>Namespace Lookup</h4>
+      <div class="do-name">Resolver</div>
+    </div>
+
+    <div class="do-contract do-voda">
+      <div class="do-ctag">SERVICE</div>
+      <h4>Identity Verification</h4>
+      <div class="do-name">Vodafone Ident Hub</div>
+    </div>
+  </div>
+
+  <div class="do-network">
+    <div class="do-tag">NETWORK · ON-CHAIN</div>
+    <h4>Chains</h4>
+    <div class="do-italic">DialRegistry per chain</div>
+    <ul>
+      <li>Canton</li>
+      <li>EVM-compatible</li>
+    </ul>
+  </div>
+</div>
+<p class="overview-meta">A <strong>Client</strong> (wallet, dapp, backend) calls DIAL. The <strong>Registry</strong> says who owns each namespace and which Resolver answers for it. The <strong>Resolver</strong> returns the actual records (chain addresses, text). The <strong>Registrar</strong> sells new namespaces. State is canonical at Pairpoint and propagated as signed copies to Canton + the EVM-compatible chain.</p>
+
+<div class="callout">
+  <strong>Core thesis.</strong> Web3 today asks users to share hex addresses with no identity behind them. DIAL replaces that with a non-custodial namespace layer — names like <code>alice.dial</code> or <code>finance.acme</code> resolve to addresses on every supported chain, and the name is backed by Vodafone Pairpoint identity attestation. Pairpoint-issued identity + the Vodafone brand are the moat.
+</div>
+
+<!-- =================================================== -->
+<h2 id="goals">2. Goals &amp; Non-Goals</h2>
+
+<h3>Goals (Phase 0)</h3>
+<ul>
+  <li><strong>Ship the DIAL App.</strong> The primary Phase 0 deliverable — the app where a client registers a namespace, maps it to chain addresses, and manages it.</li>
+  <li><strong>Issue namespaces and corporate domains.</strong> Consumers and developers register names under DIAL's <code>.dial</code> domain; enterprises register their own corporate domain (e.g. <code>.acme</code>) and issue names under it.</li>
+  <li><strong>Map namespaces to chain addresses</strong> on Canton and an EVM-compatible chain (DIAL's backend is source of truth; each chain holds a DIAL-signed copy).</li>
+  <li><strong>Be non-custodial.</strong> Pairpoint operates the AA infrastructure; user signing keys never live in DIAL.</li>
+  <li><strong>Attest identity</strong> for every persona — enterprise KYB, consumer KYC — via Vodafone Pairpoint Identity Hub. DIAL stores only the attestation hash.</li>
+  <li>Expose a <strong>Wallet SDK and resolver API</strong> so developers can integrate DIAL namespace lookup natively.</li>
+</ul>
+
+<h3>Non-Goals (Phase 0)</h3>
+<ul>
+  <li><strong>Not custodial.</strong> DIAL never holds user keys.</li>
+  <li><strong>Not a marketplace.</strong> Secondary trading is deferred.</li>
+  <li><strong>Not an agent / IoT platform.</strong> Agent Plane, bulk issuance, fleet management are deferred.</li>
+  <li><strong>Not a cross-chain bridge.</strong> DIAL never moves value between chains.</li>
+</ul>
+
+<!-- =================================================== -->
+<h2 id="personas">3. Personas (Phase 0)</h2>
+<p class="meta">Who uses DIAL, and what each persona needs from it.</p>
+<div class="grid">
+  <div class="card">
+    <h4>Enterprise Acme</h4>
+    <p>A business that buys its own verifiable corporate domain — <code>.acme</code> — and issues names under it like <code>finance.acme</code> or <code>treasury.acme</code>, one per team, function, or service. Goes through Pairpoint Identity Hub verification once, maps each name to its Canton party and EVM address, then uses the API for resolution and ownership operations — every name rolling up to the verified <code>.acme</code> parent.</p>
+  </div>
+  <div class="card">
+    <h4>Developer Dev</h4>
+    <p>Integrates the DIAL Wallet SDK or resolver API into a wallet, dapp, or backend so end-users can resolve a name like <code>alice.dial</code> or <code>finance.acme</code> to a Canton or EVM-compatible address. One-line resolver call + verifiable signed attestations.</p>
+  </div>
+  <div class="card">
+    <h4>Consumer Alice</h4>
+    <p>An individual who wants a personal namespace like <code>alice.dial</code> that maps to her own Canton and EVM-compatible addresses, so people can pay her or find her with a readable name instead of a raw <code>0x…</code> address. Verifies once through Pairpoint Identity Hub, holds the namespace non-custodially, and uses it to receive funds and prove ownership.</p>
+  </div>
+</div>
+
+<!-- =================================================== -->
+<h2 id="fr">4. Functional Map &amp; Requirements</h2>
+
+<h3>4.0 Functional Map</h3>
+<p>DIAL's capabilities, grouped by domain. Each leaf is a numbered requirement — its full specification is in the matching table below (§4.1–§4.7, one per group).</p>
+<div class="ftree">
+  <div class="ftree-root">DIAL</div>
+  <div class="ftree-cols">
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">1</span>Domain Issuance</div>
+      <div class="ftree-leaf"><span class="ftree-id">1.1</span>Availability check</div>
+      <div class="ftree-leaf"><span class="ftree-id">1.2</span>Register</div>
+      <div class="ftree-leaf"><span class="ftree-id">1.3</span>Renew</div>
+      <div class="ftree-leaf"><span class="ftree-id">1.4</span>Transfer ownership</div>
+      <div class="ftree-leaf"><span class="ftree-id">1.5</span>Edit domain</div>
+      <div class="ftree-leaf"><span class="ftree-id">1.6</span>Release</div>
+    </div>
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">2</span>Namespace Directory</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.1</span>Availability check</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.2</span>Register</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.3</span>Renew</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.4</span>Transfer ownership</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.5</span>Edit namespace</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.6</span>Release</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.7</span>Subname creation</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.8</span>Subname edit</div>
+      <div class="ftree-leaf"><span class="ftree-id">2.9</span>Subname release</div>
+    </div>
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">3</span>Namespace Lookup</div>
+      <div class="ftree-leaf"><span class="ftree-id">3.1</span>Address records</div>
+      <div class="ftree-leaf"><span class="ftree-id">3.2</span>Multichain addresses</div>
+      <div class="ftree-leaf"><span class="ftree-id">3.3</span>Reverse resolution</div>
+      <div class="ftree-leaf"><span class="ftree-id">3.4</span>Signed attestations</div>
+    </div>
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">4</span>Clients</div>
+      <div class="ftree-leaf"><span class="ftree-id">4.1</span>Wallet SDK</div>
+      <div class="ftree-leaf"><span class="ftree-id">4.2</span>DIAL App</div>
+      <div class="ftree-leaf"><span class="ftree-id">4.3</span>API authentication</div>
+      <div class="ftree-leaf"><span class="ftree-id">4.4</span>User sign-in</div>
+    </div>
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">5</span>Network</div>
+      <div class="ftree-leaf"><span class="ftree-id">5.1</span>Canton</div>
+      <div class="ftree-leaf"><span class="ftree-id">5.2</span>EVM-compatible chain</div>
+      <div class="ftree-leaf"><span class="ftree-id">5.3</span>DialRegistry per chain</div>
+      <div class="ftree-leaf"><span class="ftree-id">5.4</span>Proof-of-control</div>
+      <div class="ftree-leaf"><span class="ftree-id">5.5</span>Chain sync</div>
+    </div>
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">6</span>Identity Verification</div>
+      <div class="ftree-leaf"><span class="ftree-id">6.1</span>Enterprise verification</div>
+      <div class="ftree-leaf"><span class="ftree-id">6.2</span>Consumer verification</div>
+      <div class="ftree-leaf"><span class="ftree-id">6.3</span>Step-up re-verification</div>
+    </div>
+    <div class="ftree-col">
+      <div class="ftree-group"><span class="ftree-id">7</span>Billing</div>
+      <div class="ftree-leaf"><span class="ftree-id">7.1</span>USDC settlement</div>
+      <div class="ftree-leaf"><span class="ftree-id">7.2</span>Pricing tiers</div>
+      <div class="ftree-leaf"><span class="ftree-id">7.3</span>Invoicing &amp; receipts</div>
+      <div class="ftree-leaf"><span class="ftree-id">7.4</span>Renewal billing</div>
+      <div class="ftree-leaf"><span class="ftree-id">7.5</span>Verified-user discount</div>
+      <div class="ftree-leaf"><span class="ftree-id">7.6</span>Cart &amp; checkout</div>
+    </div>
+  </div>
+</div>
+
+<p>Priority: <span class="pill must">MUST</span> <span class="pill should">SHOULD</span> <span class="pill could">COULD</span></p>
+<div class="fr-controls">
+  <button onclick="setAllFr(true)">Expand all</button>
+  <button onclick="setAllFr(false)">Collapse all</button>
+</div>
+
+<details class="fr" id="fr-4-1"><summary>4.1 Domain Issuance</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>1.1</td><td>Real-time availability check for a domain — including name validity (normalisation, homoglyph / profanity filtering) and reserved / trademark blocks — with sub-300ms response.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>1.2</td><td>Register a domain to a verified enterprise.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>1.3</td><td>Annual renewal flow with a 30-day grace period before the domain lapses.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>1.4</td><td>Transfer domain ownership to another verified party; both parties re-checked at transfer time.</td><td><span class="pill should">SHOULD</span></td></tr>
+    <tr><td>1.5</td><td>Owner edits the domain's metadata and issuance policy (default resolver, contact records, who can register names under it). The apex domain is a parent container — chain addresses bind to the names under it, not to the apex itself.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>1.6</td><td>Owner releases the domain; it returns to the available pool after the grace period.</td><td><span class="pill should">SHOULD</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-2"><summary>4.2 Namespace Directory</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>2.1</td><td>Real-time availability check for a namespace (under a domain, or under <code>.dial</code> for consumers), including validity and reserved-name checks — sub-300ms.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.2</td><td>Register a namespace. Consumers register under <code>.dial</code>.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.3</td><td>Annual renewal flow with a 30-day grace period.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.4</td><td>Transfer namespace ownership to another verified party.</td><td><span class="pill should">SHOULD</span></td></tr>
+    <tr><td>2.5</td><td>Owner edits the namespace's records — chain addresses, resolver, metadata.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.6</td><td>Owner releases the namespace; it returns to the pool after the grace period.</td><td><span class="pill should">SHOULD</span></td></tr>
+    <tr><td>2.7</td><td>Owner creates subnamespaces under their namespace (e.g. <code>finance.acme</code>), each independently owned and configurable.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.8</td><td>Owner edits a subnamespace's records.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.9</td><td>Owner releases a subnamespace.</td><td><span class="pill should">SHOULD</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-3"><summary>4.3 Namespace Lookup</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>3.1</td><td>Public REST/gRPC endpoint resolves a name → a chain-keyed address record, e.g. <code>{ "canton:omnibus": "party::…", "eip155:&lt;chain&gt;": "0x…" }</code>. Cached, sub-300ms.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>3.2</td><td>A name can hold addresses for multiple chains; the resolver returns the address for the chain the caller requests.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>3.3</td><td>Reverse resolution: chain address → name, behind a privacy gate.</td><td><span class="pill should">SHOULD</span></td></tr>
+    <tr><td>3.4</td><td>Resolver returns DIAL-signed identity attestations (verification level, registration date, status) so contracts on Canton and the EVM-compatible chain can verify a name locally.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-4"><summary>4.4 Clients</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>4.1</td><td>Cached client SDK (JS/TS, Swift, Kotlin) embedding resolution into wallets, dapps, and backends, with offline-tolerant fallback. Ships at Phase 0.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>4.2</td><td>Consumer-facing DIAL App to claim and manage a namespace and send / receive by name.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>4.3</td><td>A single authentication method for all API consumers (OAuth2 client-credentials or API keys), with per-key rate limiting.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>4.4</td><td>User sign-in for the DIAL App via OAuth / OIDC (Google, Apple). Pairpoint AA infrastructure derives the user's on-chain account from the sign-in identity — keys remain non-custodial.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-5"><summary>4.5 Network</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>5.1</td><td><strong>Canton</strong> is a first-class Phase 0 chain — a name can bind a Canton party.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>5.2</td><td><strong>One EVM-compatible chain</strong> is first-class at Phase 0 — a name can bind an EVM address. Chain bindings use CAIP-2 (chain IDs) / CAIP-10 (accounts).</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>5.3</td><td>Each supported chain hosts a <code>DialRegistry</code> contract holding DIAL-signed copies, verifiable locally — the DIAL backend remains the source of truth.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>5.4</td><td>Binding an address to a name requires proof of control of that address — EIP-191 / EIP-712 on EVM, Daml party auth on Canton.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>5.5</td><td>A sync service propagates DIAL-signed Registry / Resolver state to each chain's on-chain copy — idempotent and retryable.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-6"><summary>4.6 Identity Verification</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>6.1</td><td>Enterprises verify once through Vodafone Pairpoint Identity Hub before issuing a domain. DIAL stores only the resulting attestation hash — no PII.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>6.2</td><td>Consumers verify once through Vodafone Pairpoint Identity Hub before registering a namespace. DIAL stores only the attestation hash.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>6.3</td><td>Step-up re-verification required on Vodafone-reported elevated-risk signals, or on high-value transfers / transfers to unverified counterparties.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-7"><summary>4.7 Billing</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>7.1</td><td>All platform charges — registration, renewal — settle in <strong>USDC</strong>, the only Phase 0 settlement currency.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>7.2</td><td>Pricing model: <strong>names</strong> = flat fixed price per year (Phase 0: 240 USDC); <strong>corporate domains</strong> = length-tiered fixed price per year (≤3 chars: 12,000 USDC · 4–6 chars: 4,800 USDC · 7+ chars: 2,400 USDC). Price list is published and versioned.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>7.3</td><td>Issue an invoice and an on-chain-verifiable receipt for every charge.</td><td><span class="pill should">SHOULD</span></td></tr>
+    <tr><td>7.4</td><td>Recurring annual renewal billing, with reminders ahead of the grace period.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>7.5</td><td>Verified-user discount on name registration — verified consumers receive a fixed percentage off list price (Phase 0: 25%). Applied at quote time so the discount is visible in the cart before payment.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>7.6</td><td>Persistent cart and multi-step checkout in the DIAL App. The basket survives sign-in / sign-out; checkout sequences Review → Sign-in → Verify identity (if needed) → Pay → Done. Out-of-cart actions (renew, release) bypass the cart.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<!-- =================================================== -->
+<h2 id="nfr">5. Non-Functional Requirements (Phase 0)</h2>
+<table>
+  <thead><tr><th>Category</th><th>Phase 0 target</th></tr></thead>
+  <tbody>
+    <tr><td>Resolver latency (p50 / p99)</td><td>80ms / 300ms — meets the sub-300ms bar for availability checks and lookups (§4.1, §4.3).</td></tr>
+    <tr><td>Registration end-to-end (p95)</td><td>&lt; 3.0s including Canton commit + Pairpoint AA submit.</td></tr>
+    <tr><td>Resolver / Wallet SDK availability</td><td>99.9% monthly (single region with hot standby) — wallets and dapps depend on it as live infrastructure.</td></tr>
+    <tr><td>DIAL App availability</td><td>99.9% monthly.</td></tr>
+    <tr><td>Scale — names</td><td>~20K domains + namespaces (including subnamespaces) by end of Phase 0.</td></tr>
+    <tr><td>Chain-sync freshness</td><td>On-chain <code>DialRegistry</code> copies reflect a canonical change within 5 min; SDKs reject attestations staler than the published <code>lastUpdatedAt</code> window.</td></tr>
+    <tr><td>Data consistency</td><td>DIAL backend (Postgres) is the single source of truth; on-chain copies are signed mirrors; a reconciler detects and corrects divergence on Canton and the EVM-compatible chain.</td></tr>
+    <tr><td>Security — key handling</td><td><strong>Non-custodial</strong>: user keys live on-device via Pairpoint AA infrastructure — never in DIAL. DIAL's own signing key in Vault / HSM (FIPS 140-2 L3).</td></tr>
+    <tr><td>Privacy</td><td>GDPR-compliant; PII stays in Pairpoint IDH and never enters DIAL — DIAL holds only the attestation hash; on-chain stores hashes only.</td></tr>
+    <tr><td>Compliance</td><td>EU eIDAS-ready; MiCA classification of issued names under external-counsel review (§13); identity verification via Pairpoint IDH.</td></tr>
+    <tr><td>API protection</td><td>Single authentication method for all API consumers (§4.4); per-key rate limiting and abuse throttling.</td></tr>
+    <tr><td>Observability</td><td>Full OpenTelemetry tracing; SLO dashboards per service.</td></tr>
+    <tr><td>Disaster recovery</td><td>RPO 15 min · RTO 1 hour.</td></tr>
+    <tr><td>Accessibility</td><td>WCAG 2.2 AA on the DIAL App.</td></tr>
+    <tr><td>Localisation</td><td>Phase 0 launch: EN; additional languages in later phases, per market.</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="arch">6. Solution Architecture</h2>
+
+<div class="callout">
+  <strong>Phase 0 MVP — namespace issuance for developers, enterprises, and consumers.</strong> Enterprises register their own verifiable corporate <strong>domain</strong> (e.g. <code>.acme</code>) and issue names under it; developers and consumers register names under DIAL's <code>.dial</code> domain. Clients: <strong>Wallet SDK, Resolver API, and the DIAL App</strong>. <strong>Non-custodial</strong> — Pairpoint operates account-abstraction infrastructure (bundler / paymaster / sponsored gas); user keys never live in DIAL. <strong>Vodafone Pairpoint Identity Hub</strong> as the identity gate for every persona. Built on <strong>Canton + one EVM-compatible chain</strong> from day one.
+</div>
+<p class="meta"><em>Out of Phase 0 scope and deferred to later phases (§12 Roadmap): marketplace, Agent Plane, operator Console, browser interface, third-party Wallet SDK, additional EVM and non-EVM chains, additional Identity Hub capabilities.</em></p>
+
+<h3>6.1 Architecture at a Glance</h3>
+<p>Four blocks. What users touch, what we build, what we depend on, where state lives.</p>
+
+<div class="arch61">
+
+  <!-- Block 1: Clients -->
+  <div class="block">
+    <div class="title">1 · Clients <small>Phase 0 — developers, enterprises, consumers</small></div>
+    <div class="pills cols-2">
+      <div class="pill">Wallet SDK</div>
+      <div class="pill">DIAL App</div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- Middle row: DIAL Platform + Vodafone IDH side by side -->
+  <div class="middle">
+
+    <div class="block">
+      <div class="title">2 · DIAL Platform <small>what we build</small></div>
+      <div class="pills cols-3">
+        <div class="pill core"><strong>Registry</strong><span>ownership ledger</span></div>
+        <div class="pill core"><strong>Resolver</strong><span>records · lookup</span></div>
+        <div class="pill core"><strong>Registrar</strong><span>domain issuance</span></div>
+      </div>
+      <div class="pills cols-2" style="margin-top: 8px;">
+        <div class="pill">Billing</div>
+        <div class="pill">Chain Sync</div>
+      </div>
+    </div>
+
+    <div class="arrow-horiz">↔</div>
+
+    <div class="block voda">
+      <div class="title">3 · Vodafone Pairpoint Identity Hub</div>
+    </div>
+
+  </div>
+
+  <div class="arrow">↓<small>read/write</small></div>
+
+  <!-- Block 4: On-chain Registries -->
+  <div class="block">
+    <div class="title">4 · On-chain Registries <small>Phase 0 — Canton + one EVM-compatible chain</small></div>
+    <div class="pills cols-2">
+      <div class="pill"><strong>Canton</strong><span>DialRegistry + Resolver contract</span></div>
+      <div class="pill"><strong>EVM-compatible chain</strong><span>DialRegistry + Resolver contract</span></div>
+    </div>
+  </div>
+
+</div>
+
+<h4>What each block does</h4>
+<div class="grid">
+  <div class="card">
+    <h4>① Clients</h4>
+    <p>Phase 0 = developers, enterprises, and consumers. The <strong>Wallet SDK</strong> embeds resolution into wallets and dapps; the <strong>Resolver API</strong> is the public REST/gRPC endpoint; the <strong>DIAL App</strong> is the first-party interface for registering and managing names.</p>
+  </div>
+  <div class="card">
+    <h4>② DIAL Platform</h4>
+    <p>Mirrors the ENS three-component pattern. Three cores + two supporting services:</p>
+    <ul>
+      <li><strong>Registry</strong> — <em>ownership</em>. For every domain and namespace: who owns it, which Resolver answers, expiry.</li>
+      <li><strong>Resolver</strong> — <em>records</em>. The actual data: chain addresses, text records, contenthash.</li>
+      <li><strong>Registrar</strong> — <em>issuance</em>. Issues corporate domains to enterprises and names under <code>.dial</code> to developers and consumers; owners create subnames under their own domain (<code>register</code>, <code>renew</code>, <code>available</code>).</li>
+      <li><strong>Billing</strong> — USDC payment collection for primary issuance + annual renewal.</li>
+      <li><strong>Chain Sync</strong> — propagates DIAL-signed Registry + Resolver state to both on-chain copies.</li>
+    </ul>
+  </div>
+  <div class="card" style="border-color: var(--accent); background: linear-gradient(180deg, rgba(230,0,0,0.06), var(--card));">
+    <h4 style="color: var(--accent-soft);">③ Vodafone Pairpoint Identity Hub</h4>
+    <p>Phase 0 identity gate. DIAL holds no PII, just the attestation hash returned by Pairpoint.</p>
+  </div>
+  <div class="card">
+    <h4>④ On-chain Registries</h4>
+    <p>Each chain hosts a DIAL-signed <code>DialRegistry</code> + <code>Resolver</code> contract pair, mirroring the ENS pattern. <strong>Canton</strong> uses Daml contracts; the <strong>EVM-compatible chain</strong> uses Solidity (<code>DialRegistry.sol</code>, <code>DialResolver.sol</code>). The DIAL Backend is canonical; on-chain copies let any wallet or dapp verify locally on whichever chain it lives on.</p>
+  </div>
+</div>
+
+<h4>DIAL Platform internals</h4>
+<p>How the three cores plus two supporting services connect.</p>
+<div class="mermaid">
+flowchart TB
+  REGISTRAR["Registrar<br/>register / renew / available"]
+  REGISTRY["Registry<br/>(owner, resolver, expires)"]
+  RESOLVER["Resolver<br/>addr · text · contenthash"]
+  BI[Billing]
+  SYNC[Chain Sync]
+  BUS{{"Event Bus"}}
+
+  REGISTRAR -->|writes| REGISTRY
+  REGISTRY -->|points to| RESOLVER
+  BI -->|on payment| REGISTRAR
+
+  REGISTRY -. publish .-> BUS
+  RESOLVER -. publish .-> BUS
+  BUS -. consume .-> SYNC
+
+  style BUS fill:#1a0606,stroke:#e60000,color:#ffffff,stroke-width:2px
+  style REGISTRY fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+  style RESOLVER fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+  style REGISTRAR fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+</div>
+<p class="meta">Same ENS separation: <strong>Registrar</strong> sells namespaces and writes ownership rows into the <strong>Registry</strong>. <strong>Registry</strong> says who owns what and which <strong>Resolver</strong> answers for it. <strong>Resolver</strong> returns actual records (addresses, text). <strong>Chain Sync</strong> pushes both Registry + Resolver state to each chain's on-chain copy. <strong>Non-custodial</strong> throughout — user keys never live in DIAL.</p>
+
+<h4>How the components work together</h4>
+<p>One level deeper — actual interactions between services, data stores, chains, and Vodafone. Reading guide: <strong>solid arrows</strong> = synchronous calls or writes · <strong>dotted arrows</strong> = events on the bus · <strong>red blocks</strong> = Vodafone services.</p>
+<div class="mermaid">
+flowchart TB
+  CLI([Clients])
+  GW(["API Gateway + Auth"])
+
+  REGISTRAR[Registrar]
+  REGISTRY[Registry]
+  RES[Resolver]
+  BI[Billing]
+  SYNC["Chain Sync"]
+
+  BUS{{Event Bus}}
+
+  PG[("Postgres<br/>source of truth")]
+  RD[(Redis)]
+  VAULT[("Vault / HSM<br/>DIAL signing key")]
+  CN[/"Canton"/]
+  EVM[/"EVM-compatible chain"/]
+  IDH[/"Vodafone Pairpoint Identity Hub"/]
+  AA[/"Pairpoint AA Infra<br/>non-custodial"/]
+
+  %% Request path
+  CLI --> GW
+  CLI -. "user signs ops" .-> AA
+  GW -. "verify" .-> IDH
+  GW --> REGISTRAR
+  GW --> REGISTRY
+  GW --> RES
+  GW --> BI
+
+  %% Service-to-service
+  REGISTRAR -->|writes| REGISTRY
+  REGISTRY -->|points to| RES
+
+  %% Events
+  REGISTRY -. publish .-> BUS
+  RES -. publish .-> BUS
+  BI -. publish .-> BUS
+  BUS -. "invalidate cache" .-> RES
+  BUS -. "sync trigger" .-> SYNC
+
+  %% Data stores
+  REGISTRY -->|"canonical write"| PG
+  RES --> PG
+  BI --> PG
+  RES --> RD
+  SYNC --> VAULT
+
+  %% Chain Sync writes DIAL-signed attestations
+  SYNC -->|"signed write"| CN
+  SYNC -->|"signed write"| EVM
+  AA -. "bundle / submit" .-> EVM
+
+  style IDH fill:#e60000,color:#ffffff,stroke:#ff4d4d,stroke-width:2px
+  style AA fill:#3a1818,color:#ffffff,stroke:#e60000
+  style BUS fill:#1a0606,color:#ffffff,stroke:#e60000
+  style GW fill:#0f1216,color:#ffffff,stroke:#3a4250
+  style CN fill:#0f1216,color:#ffffff,stroke:#3a4250
+  style EVM fill:#0f1216,color:#ffffff,stroke:#3a4250
+</div>
+<p class="meta"><strong>Non-custodial.</strong> User keys never live in DIAL — Clients sign their own ops via Pairpoint's AA infrastructure (bundler / paymaster, external). DIAL holds its <em>own</em> signing key in Vault/HSM for the identity attestations Chain Sync writes on chain. Postgres is the source of truth; Resolver caches reads in Redis.</p>
+
+<h3>6.2 Backend Service Detail</h3>
+<table>
+  <thead><tr><th>Service</th><th>Responsibility</th><th>Key methods / interface</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Registry</strong><br><small>ownership</small></td><td>The ledger of ownership. For every domain and namespace: who owns it, which Resolver answers for it, when it expires. Source of truth lives in DIAL's Postgres; on-chain copies on Canton + EVM are signed mirrors.</td><td><code>ownerOf(namespace)</code><br><code>resolverOf(namespace)</code><br><code>expiresAt(namespace)</code></td></tr>
+    <tr><td><strong>Resolver</strong><br><small>records</small></td><td>Where the actual data lives — chain addresses and other records keyed by namespace. Multi-chain by default (returns the address for whichever chain the caller asks about).</td><td><code>addr(namespace, chainId) → 0x…</code><br><code>text(namespace, key) → string</code><br><code>contenthash(namespace) → bytes</code></td></tr>
+    <tr><td><strong>Registrar</strong><br><small>issuance</small></td><td>Issues corporate domains to verified enterprises (e.g. <code>.acme</code>) and names under DIAL's <code>.dial</code> domain to developers and consumers; namespace owners create subnames under their own domain. Enforces reserved-name and validity rules. Calls Pairpoint IDH for identity verification before issuance.</td><td><code>register(label, owner, duration)</code><br><code>renew(label, duration)</code><br><code>available(label)</code></td></tr>
+    <tr><td><strong>Billing</strong></td><td>USDC pricing tiers, invoicing, payment collection. Releases the Registrar to issue once payment is captured.</td><td><code>POST /v1/billing/checkout</code><br><code>POST /v1/billing/renew</code></td></tr>
+    <tr><td><strong>Chain Sync</strong></td><td>Subscribes to Registry / Resolver change events and writes DIAL-signed copies to the on-chain <code>DialRegistry</code> + <code>DialResolver</code> contracts on Canton and the EVM-compatible chain. Stateless, idempotent, retryable.</td><td>internal — bus consumer</td></tr>
+  </tbody>
+</table>
+<p class="meta"><strong>ENS lineage.</strong> Registry / Resolver / Registrar are the same three components ENS uses. The difference: ENS puts Registry + Resolver on L1 contracts; DIAL keeps them off-chain (Postgres) as canonical and propagates signed copies on-chain via Chain Sync. Reason — Pairpoint operates an identity-verified issuance flow that doesn't fit a permissionless L1 Registrar.</p>
+<p class="meta"><strong>Not in this table:</strong> identity verification — entirely Vodafone Pairpoint IDH (external), not a DIAL service. Chain adapters — internal implementation detail of how Registry, Resolver, and Chain Sync talk to Canton + the EVM-compatible chain.</p>
+
+<h3>6.3 Data Tier</h3>
+<p>The <strong>DIAL backend (Postgres + Vault) is the source of truth</strong>. Each supported chain holds a signed copy in its <code>DialRegistry</code> contract — useful for on-chain verification by wallets and dapps on that chain, but not authoritative. Critically, <strong>PII never lives in DIAL</strong> — it stays with Vodafone IDH; DIAL only holds the resulting attestation hash.</p>
+<table>
+  <thead><tr><th>Store</th><th>Holds</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td><strong>PostgreSQL</strong></td><td><strong>Canonical</strong> identity records, chain bindings, billing data, audit metadata. The source of truth — chains carry signed copies.</td><td>Strong consistency for OLTP.</td></tr>
+    <tr><td><strong>Redis</strong></td><td>Resolver hot cache, session state, rate-limit counters.</td><td>Sub-millisecond name lookup; cluster-mode.</td></tr>
+    <tr><td><strong>Vault / Cloud HSM</strong></td><td><strong>DIAL's own signing key</strong> used by Chain Sync to sign on-chain attestations. <em>Not user custody</em> — user keys never live in DIAL.</td><td>FIPS 140-2 L3.</td></tr>
+    <tr><td><strong>Canton DialRegistry</strong> (on-chain)</td><td>DIAL-signed identity attestations + privacy-preserving Daml workflows for regulated counterparties.</td><td>Verifiable by Canton-native consumers.</td></tr>
+    <tr><td><strong>EVM DialRegistry contract</strong> (on-chain)</td><td>DIAL-signed identity attestations on the Phase 0 EVM-compatible chain. Additional EVM chains are a later-phase expansion.</td><td>Verifiable by EVM wallets and smart contracts.</td></tr>
+  </tbody>
+</table>
+
+<h3>6.4 Event-Driven Backbone</h3>
+<p>Inter-service communication uses an event bus (Kafka or NATS JetStream) for asynchronous flows. Synchronous reads use gRPC; public APIs are REST + GraphQL.</p>
+
+<div class="callout">
+  <strong>Why event-driven?</strong> Chain commits are async with very different finality characteristics (Canton seconds, the EVM-compatible chain ~12s, future chains minutes). An event bus decouples user-facing latency from settlement finality across chains and gives us a uniform audit substrate.
+</div>
+
+<h4>Concrete topics</h4>
+<table>
+  <thead><tr><th>Topic</th><th>Producer</th><th>Consumers</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>identity.issued</code></td><td>Registrar</td><td>Registry, Resolver, Chain Sync, Billing</td><td>New domain or namespace registered</td></tr>
+    <tr><td><code>identity.renewed</code></td><td>Registrar</td><td>Registry, Chain Sync, Billing</td><td>Annual renewal completed</td></tr>
+    <tr><td><code>identity.transferred</code></td><td>Registry</td><td>Resolver, Chain Sync</td><td>Ownership changed</td></tr>
+    <tr><td><code>identity.revoked</code></td><td>Registry</td><td>Resolver, Chain Sync</td><td>Namespace released, revoked, or expired</td></tr>
+    <tr><td><code>chain.binding.added</code></td><td>Resolver</td><td>Chain Sync</td><td>New chain address bound to a namespace</td></tr>
+    <tr><td><code>idh.risk.elevated</code></td><td>IDH webhook receiver</td><td>Registry</td><td>Vodafone-reported risk signal — gate sensitive ops</td></tr>
+    <tr><td><code>chain.sync.applied</code></td><td>Chain Sync</td><td>Registry, Audit</td><td>Signed write to a chain applied successfully</td></tr>
+    <tr><td><code>chain.sync.failed</code></td><td>Chain Sync</td><td>On-call</td><td>Sync to a chain failed → reconciler retries</td></tr>
+    <tr><td><code>billing.payment.captured</code></td><td>Billing</td><td>Registrar</td><td>Payment confirmed → Registrar mints</td></tr>
+  </tbody>
+</table>
+
+<h3>6.5 Standards Alignment</h3>
+<p>Which open standards each part of the architecture implements — so DIAL interoperates with the wider ecosystem instead of being a closed format.</p>
+<div class="std-map">
+
+  <div class="std-row">
+    <div class="std-component">
+      <strong>Client / Wallet</strong>
+      <span>DIAL App · Wallet SDK</span>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ERC-4337 · Account Abstraction</span>
+      <span class="chip">ERC-1271 · smart-account signatures</span>
+    </div>
+  </div>
+
+  <div class="std-row">
+    <div class="std-component">
+      <strong>Registry</strong>
+      <span>ownership ledger</span>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ENSIP-1 · namehash</span>
+    </div>
+  </div>
+
+  <div class="std-row">
+    <div class="std-component">
+      <strong>Resolver</strong>
+      <span>address lookup</span>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ERC-7930 · Interoperable Addresses</span>
+      <span class="chip">CAIP-2 / 10 · chain &amp; account IDs</span>
+    </div>
+  </div>
+
+  <div class="std-row">
+    <div class="std-component">
+      <strong>Registrar</strong>
+      <span>domain issuance</span>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ERC-721 · transferable namespace</span>
+      <span class="chip">ERC-5192 · soulbound namespace</span>
+    </div>
+  </div>
+
+  <div class="std-row">
+    <div class="std-component voda">
+      <strong>Vodafone Ident Hub</strong>
+      <span>identity verification</span>
+    </div>
+    <div class="std-chips">
+      <span class="chip">W3C Verifiable Credentials</span>
+    </div>
+  </div>
+
+  <div class="std-row">
+    <div class="std-component">
+      <strong>Chains</strong>
+      <span>Canton + EVM-compatible</span>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ERC-7930 · on-chain interop addresses</span>
+      <span class="chip">CAIP-350 · chain-type profiles</span>
+    </div>
+  </div>
+
+</div>
+<p class="meta"><strong>Open question (→ §13 Risks):</strong> the Registrar implements one of ERC-721 (transferable namespace) or ERC-5192 (soulbound namespace) — a product decision that changes the ownership model.</p>
+
+<h3>6.6 How ENS Is Built (Reference)</h3>
+<p>DIAL's Registry / Resolver / Registrar split is borrowed from ENS — the Ethereum Name Service. This is the prior art: how ENS does it on-chain, so the choices in §6.1–§6.5 have context.</p>
+<p class="meta">Everything in ENS is keyed by <strong>namehash (ENSIP-1)</strong> — names are never stored as strings on-chain. A name is first normalized (<strong>ENSIP-15</strong>), then <code>namehash("alice.eth")</code> recursively hashes each label into one fixed 32-byte <code>node</code>, and every contract below addresses names by that <code>node</code>.</p>
+
+<div class="arch61">
+
+  <!-- Naming -->
+  <div class="block">
+    <div class="title">Naming <small>client-side — turns a name string into the 32-byte node every contract below is keyed by</small></div>
+    <div class="pills cols-2">
+      <div class="pill"><strong>normalise()</strong><span>ens-normalize · Unicode rules</span></div>
+      <div class="pill"><strong>namehash()</strong><span>name → 32-byte node</span></div>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ENSIP-15 · name normalization</span>
+      <span class="chip">ENSIP-1 · namehash algorithm</span>
+    </div>
+  </div>
+
+  <div class="arrow">↓<small>every contract below is keyed by this node</small></div>
+
+  <!-- Registrars -->
+  <div class="block">
+    <div class="title">Registrars <small>issue names — own a TLD, govern how names under it are sold</small></div>
+    <div class="pills cols-2">
+      <div class="pill"><strong>ETHRegistrarController.sol</strong><span>commit() · register() · renew() · rentPrice()</span></div>
+      <div class="pill"><strong>BaseRegistrarImplementation.sol</strong><span>register() · ownerOf() · nameExpires() · transferFrom()</span></div>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ERC-721 · BaseRegistrarImplementation is the .eth NFT contract</span>
+    </div>
+  </div>
+
+  <div class="arrow">↓<small>register() → ENSRegistry.setSubnodeOwner()</small></div>
+
+  <!-- Registry + NameWrapper (side by side) -->
+  <div class="middle">
+
+    <div class="block">
+      <div class="title">ENS Registry <small>ENSRegistry.sol — one on-chain contract, the source of truth</small></div>
+      <div class="pills cols-3">
+        <div class="pill core"><strong>owner(node)</strong><span>who controls the node</span></div>
+        <div class="pill core"><strong>resolver(node)</strong><span>which contract answers</span></div>
+        <div class="pill core"><strong>ttl(node)</strong><span>cache lifetime</span></div>
+      </div>
+      <div class="pills cols-3" style="margin-top: 8px;">
+        <div class="pill"><strong>setOwner()</strong><span>transfer a node</span></div>
+        <div class="pill"><strong>setResolver()</strong><span>point to a resolver</span></div>
+        <div class="pill"><strong>setSubnodeOwner()</strong><span>create a subname</span></div>
+      </div>
+      <div class="std-chips">
+        <span class="chip">ENSIP-1 · the Registry interface (owner / resolver / ttl)</span>
+      </div>
+    </div>
+
+    <div class="arrow-horiz">↔<small>becomes owner(node)</small></div>
+
+    <div class="block">
+      <div class="title">NameWrapper <small>NameWrapper.sol — optional ownership wrapper, sits beside the Registry</small></div>
+      <div class="pills cols-2">
+        <div class="pill"><strong>wrap()</strong><span>name → ERC-1155 token</span></div>
+        <div class="pill"><strong>unwrap()</strong><span>back to plain ownership</span></div>
+      </div>
+      <div class="pills cols-2" style="margin-top: 8px;">
+        <div class="pill"><strong>setFuses()</strong><span>lock permissions</span></div>
+        <div class="pill"><strong>setSubnodeOwner()</strong><span>issue wrapped subnames</span></div>
+      </div>
+      <div class="std-chips">
+        <span class="chip">ERC-1155 · wrapped names are ERC-1155 tokens</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="arrow">↓<small>resolver(node) → the PublicResolver contract</small></div>
+
+  <!-- Resolvers -->
+  <div class="block">
+    <div class="title">Resolvers <small>PublicResolver.sol — a bundle of profile contracts, each adding record types</small></div>
+    <div class="pills cols-4">
+      <div class="pill"><strong>addr()</strong><span>AddrResolver.sol · ENSIP-1 / 9 / 11</span></div>
+      <div class="pill"><strong>text()</strong><span>TextResolver.sol · ENSIP-5 / 12</span></div>
+      <div class="pill"><strong>contenthash()</strong><span>ContentHashResolver.sol · ENSIP-7</span></div>
+      <div class="pill"><strong>name()</strong><span>NameResolver.sol · ENSIP-3</span></div>
+      <div class="pill"><strong>ABI()</strong><span>ABIResolver.sol · ENSIP-4</span></div>
+      <div class="pill"><strong>interfaceImplementer()</strong><span>InterfaceResolver.sol · ENSIP-8</span></div>
+      <div class="pill"><strong>resolve()</strong><span>ExtendedResolver.sol · ENSIP-10 + ERC-3668</span></div>
+      <div class="pill"><strong>supportsInterface()</strong><span>ResolverBase.sol · ERC-165</span></div>
+    </div>
+    <div class="std-chips">
+      <span class="chip">ENSIP-17 · OffchainDNSResolver.sol — DNS names</span>
+      <span class="chip">ENSIP-19 · L2ReverseRegistrar.sol — multichain primary names</span>
+    </div>
+  </div>
+
+</div>
+
+<h4>How a name gets registered</h4>
+<p>The <code>.eth</code> registrar uses a <strong>commit–reveal</strong> flow — two transactions with a forced wait between them — so nobody watching the mempool can see the name you want and front-run your registration.</p>
+<div class="mermaid">
+flowchart TD
+  START(["User wants a .eth name"])
+  PICK["User · pick a name, normalise it — ENSIP-15"]
+  AVAIL{"ETHRegistrarController<br/>available(name)?"}
+  MAKE["User · build the commitment<br/>makeCommitment(name, owner, secret, …)"]
+  TX1["TX 1 · commit(commitment)<br/>hash goes on-chain — reveals nothing"]
+  WAIT["Wait — MIN_COMMITMENT_AGE (min. 60s)<br/>commitment also expires after about a day"]
+  TX2["TX 2 · register(name, owner, duration, …)<br/>payable — rent paid in ETH"]
+  VALID{"commitment aged + unspent,<br/>payment covers rentPrice?"}
+  REVERT(["Reverts — fix and retry"])
+  MINT["BaseRegistrarImplementation<br/>mint ERC-721 to owner · set nameExpires"]
+  WRITE["ENSRegistry<br/>set owner + resolver for the node"]
+  RECORDS["Resolver · set initial records — optional, same tx"]
+  DONE(["Registered — owner holds the .eth NFT"])
+
+  START --> PICK --> AVAIL
+  AVAIL -->|"no — taken"| PICK
+  AVAIL -->|yes| MAKE --> TX1 --> WAIT --> TX2 --> VALID
+  VALID -->|no| REVERT
+  VALID -->|yes| MINT --> WRITE --> RECORDS --> DONE
+
+  style TX1 fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+  style TX2 fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+  style START fill:#1a0606,stroke:#e60000,color:#ffffff
+  style DONE fill:#1a0606,stroke:#e60000,color:#ffffff
+</div>
+<p class="meta">Reading guide: <strong>diamonds</strong> = decision points · <strong>dark boxes</strong> = on-chain transactions. The contracts are the same ones in the diagram above — <code>ETHRegistrarController</code> orchestrates, <code>BaseRegistrarImplementation</code> mints the ERC-721, <code>ENSRegistry</code> records owner + resolver.</p>
+
+<h4>How a name gets resolved</h4>
+<p>Resolution is a read: turn the name into a <code>node</code>, ask the Registry which resolver answers for it, then ask that resolver. A modern resolver can also answer <strong>off-chain</strong> via CCIP-Read (ERC-3668) — the client fetches from a gateway and the resolver verifies a proof.</p>
+<div class="mermaid">
+flowchart TD
+  START(["App / wallet has a name — alice.eth"])
+  NH["Normalise (ENSIP-15) + namehash → node"]
+  GETRES["Call ENSRegistry.resolver(node)"]
+  HASRES{"resolver set<br/>for this node?"}
+  NORES(["Unresolved — no resolver"])
+  CALLRES["Call the resolver — resolve(node) / addr(node)"]
+  BRANCH{"direct answer, or<br/>OffchainLookup revert? (ERC-3668)"}
+  GATEWAY["Client calls the gateway URL<br/>fetches data + proof"]
+  CALLBACK["Client calls the callback<br/>resolver verifies the proof"]
+  GOT["Record returned — address / text / contenthash"]
+  DONE(["Resolved"])
+
+  START --> NH --> GETRES --> HASRES
+  HASRES -->|no| NORES
+  HASRES -->|yes| CALLRES --> BRANCH
+  BRANCH -->|"direct (on-chain resolver)"| GOT
+  BRANCH -->|"OffchainLookup (wildcard / L2)"| GATEWAY --> CALLBACK --> GOT
+  GOT --> DONE
+
+  style GETRES fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+  style CALLRES fill:#0f1216,stroke:#3a4250,color:#ffffff,stroke-width:2px
+  style START fill:#1a0606,stroke:#e60000,color:#ffffff
+  style DONE fill:#1a0606,stroke:#e60000,color:#ffffff
+</div>
+<p class="meta">Reading guide: <strong>diamonds</strong> = decision points · <strong>dark boxes</strong> = on-chain reads. Libraries like ethers.js / viem bundle the whole path into one <code>resolveName()</code> call. <strong>Reverse resolution</strong> (address → name) is the mirror image — look up <code>&lt;address&gt;.addr.reverse</code> and read its <code>name()</code> record.</p>
+
+<h4>All ENS standards, mapped to the architecture</h4>
+<p>Every standard currently in production — <strong>13 Final ENSIPs + 4 external ERCs</strong> — placed against the component that implements it. The <strong>Resolver carries most of them</strong>: it's ENS's extensible layer, where new record types and resolution mechanisms are added without ever touching the Registry.</p>
+<table>
+  <thead><tr><th>Component</th><th>Standard</th><th>Role</th><th>Implemented by — contract · function</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="2"><strong>Naming</strong></td>
+        <td>ENSIP-1</td><td>The core ENS spec — the namehash algorithm (name → 32-byte <code>node</code>). Also defines the Registry interface and the base <code>addr()</code> resolver.</td><td><code>namehash()</code> in every ENS library; the interface is <code>ENS.sol</code> / <code>ENSRegistry.sol</code></td></tr>
+    <tr><td>ENSIP-15</td><td>Name normalization — the Unicode rules a name must pass before it is hashed.</td><td><code>ens-normalize</code> — client-side libraries (ensjs, viem, ethers), not a contract</td></tr>
+    <tr><td><strong>Registry</strong></td>
+        <td>ENSIP-1</td><td>The <code>owner</code> / <code>resolver</code> / <code>ttl</code> record per node — interface defined in ENSIP-1 (above).</td><td><code>ENSRegistry.sol</code> — <code>owner()</code> · <code>resolver()</code> · <code>setSubnodeOwner()</code></td></tr>
+    <tr><td><strong>Registrars</strong></td>
+        <td>ERC-721</td><td><code>.eth</code> names are issued and held as NFTs by the BaseRegistrar.</td><td><code>BaseRegistrarImplementation.sol</code> — <code>register()</code> · <code>ownerOf()</code></td></tr>
+    <tr><td><strong>NameWrapper</strong></td>
+        <td>ERC-1155</td><td>Optional ownership wrapper — wraps a name as an ERC-1155 token with fuses / permission controls, and becomes the owner-of-record in the Registry.</td><td><code>NameWrapper.sol</code> (<code>ERC1155Fuse.sol</code>) — <code>wrap()</code> · <code>setFuses()</code></td></tr>
+    <tr><td rowspan="14"><strong>Resolvers</strong></td>
+        <td>ENSIP-1</td><td>Base forward resolution — <code>addr()</code> returns the Ethereum address.</td><td><code>AddrResolver.sol</code> — <code>addr(node)</code></td></tr>
+    <tr><td>ENSIP-3</td><td>Reverse resolution — address → name (<code>name()</code>).</td><td><code>NameResolver.sol</code> — <code>name()</code> · <code>ReverseRegistrar.sol</code></td></tr>
+    <tr><td>ENSIP-4</td><td>Contract ABI records.</td><td><code>ABIResolver.sol</code> — <code>ABI()</code></td></tr>
+    <tr><td>ENSIP-5</td><td>Text records — arbitrary key/value pairs (<code>text()</code>).</td><td><code>TextResolver.sol</code> — <code>text()</code></td></tr>
+    <tr><td>ENSIP-7</td><td>Contenthash — an IPFS / Swarm site for the name.</td><td><code>ContentHashResolver.sol</code> — <code>contenthash()</code></td></tr>
+    <tr><td>ENSIP-8</td><td>Interface discovery — find the contract implementing a given interface for a name.</td><td><code>InterfaceResolver.sol</code> — <code>interfaceImplementer()</code></td></tr>
+    <tr><td>ENSIP-9</td><td>Multichain address resolution — addresses for non-Ethereum chains.</td><td><code>AddrResolver.sol</code> — <code>addr(node, coinType)</code></td></tr>
+    <tr><td>ENSIP-10</td><td>Wildcard resolution — resolve subnames never written on-chain individually.</td><td><code>ExtendedResolver.sol</code> — <code>resolve()</code></td></tr>
+    <tr><td>ENSIP-11</td><td>EVM-compatible chain address resolution.</td><td><code>AddrResolver.sol</code> — <code>addr(node, coinType)</code> with EVM coinTypes</td></tr>
+    <tr><td>ENSIP-12</td><td>Avatar text record — standard avatar URI format.</td><td><code>TextResolver.sol</code> — <code>text(node, "avatar")</code></td></tr>
+    <tr><td>ENSIP-17</td><td>Gasless DNS resolution — an <code>OffchainDNSResolver</code> resolves DNS names via DNSSEC proofs over CCIP-Read.</td><td><code>OffchainDNSResolver.sol</code> — <code>resolve()</code></td></tr>
+    <tr><td>ENSIP-19</td><td>Multichain primary names — reverse (primary) names across multiple chains.</td><td><code>L2ReverseRegistrar.sol</code></td></tr>
+    <tr><td>ERC-165</td><td>Interface detection — <code>supportsInterface()</code> on the resolver.</td><td><code>ResolverBase.sol</code> — <code>supportsInterface()</code></td></tr>
+    <tr><td>ERC-3668</td><td>CCIP-Read — resolve from an offchain gateway / L2 with an on-chain-verifiable proof.</td><td><code>ExtendedResolver.sol</code> / <code>OffchainDNSResolver.sol</code> — <code>resolve()</code></td></tr>
+  </tbody>
+</table>
+<p class="meta"><strong>17 standards, 19 rows</strong> — ENSIP-1 is foundational and spans the Naming layer, the Registry and the base Resolver, so it appears three times. Draft ENSIPs (13 / 14 / 16 / 18 / 20–26) and the two obsolete ones (2, 6) are excluded — this table is what is actually in production.</p>
+
+<h4>What DIAL keeps, what DIAL changes</h4>
+<table>
+  <thead><tr><th>ENS</th><th>DIAL (Phase 0)</th><th>Why the change</th></tr></thead>
+  <tbody>
+    <tr><td>Registry / Resolver / Registrar split</td><td>Kept — same three roles</td><td>Clean separation of ownership, records, and issuance is the part worth copying.</td></tr>
+    <tr><td>Registry contract <em>is</em> the source of truth</td><td>DIAL Backend (Postgres) is canonical; chains hold DIAL-signed copies</td><td>Phase 0 spans Canton + an EVM chain — no single chain can be canonical.</td></tr>
+    <tr><td>Single chain (Ethereum L1)</td><td>Canton + one EVM-compatible chain from day one</td><td>DIAL is multi-chain by design (§6.1).</td></tr>
+    <tr><td>Permissionless registration, paid in ETH</td><td>Identity-verified via Vodafone Pairpoint Identity Hub, paid in USDC</td><td>Every registration — consumer, developer, or enterprise — is identity-verified before issuance.</td></tr>
+    <tr><td>User pays their own gas</td><td>Non-custodial via Pairpoint AA infrastructure (sponsored gas)</td><td>Users sign their own ops but never touch gas or hold DIAL keys.</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="data">7. Data Model</h2>
+<p>Two-level namespace: a <strong>domain</strong> is the apex (<code>.dial</code> operated by DIAL, or a corporate domain like <code>.acme</code>), a <strong>namespace</strong> is a name under a domain (<code>alice.dial</code>, <code>finance.acme</code>), and a <strong>subname</strong> is a third level under a namespace (<code>pay.alice.dial</code>). Records (chain bindings, text) attach to namespaces and subnames — never to the apex domain itself.</p>
+<div class="mermaid">
+erDiagram
+  OWNER ||--o{ DOMAIN : owns
+  OWNER ||--o{ NAMESPACE : owns
+  OWNER ||--o{ SUBNAME : owns
+  OWNER ||--|| KYC_RECORD : "verified via"
+  DOMAIN ||--o{ NAMESPACE : "parent of"
+  NAMESPACE ||--o{ SUBNAME : "parent of"
+  NAMESPACE ||--o{ CHAIN_BINDING : has
+  NAMESPACE ||--o{ TEXT_RECORD : has
+  SUBNAME ||--o{ CHAIN_BINDING : has
+  SUBNAME ||--o{ TEXT_RECORD : has
+  NAMESPACE ||--o{ BILLING_RECORD : "billed via"
+  DOMAIN ||--o{ BILLING_RECORD : "billed via"
+
+  OWNER {
+    uuid id PK
+    enum kind "CONSUMER or ENTERPRISE"
+    string canton_party
+    string evm_address
+    uuid kyc_record_id FK
+    timestamp created_at
+  }
+  KYC_RECORD {
+    uuid id PK
+    enum kind "KYC or KYB"
+    string provider "Pairpoint IDH"
+    string attestation_hash "no PII stored"
+    timestamp verified_at
+    timestamp expires_at
+  }
+  DOMAIN {
+    uuid id PK
+    string label "dial or acme"
+    uuid owner_id FK
+    enum issuance_policy "OPEN, CURATED, or CLOSED"
+    enum status "ACTIVE, GRACE, or EXPIRED"
+    timestamp registered_at
+    timestamp expires_at
+  }
+  NAMESPACE {
+    uuid id PK
+    string fqn "alice.dial or finance.acme"
+    uuid domain_id FK
+    uuid owner_id FK
+    string resolver "default or custom URI"
+    enum status "ACTIVE, GRACE, or EXPIRED"
+    timestamp registered_at
+    timestamp expires_at
+  }
+  SUBNAME {
+    uuid id PK
+    string fqn "pay.alice.dial"
+    uuid namespace_id FK
+    uuid owner_id FK
+    enum status "ACTIVE or RELEASED"
+    timestamp created_at
+  }
+  CHAIN_BINDING {
+    uuid id PK
+    uuid target_id FK "namespace or subname"
+    string chain_id "CAIP-2 e.g. canton:omnibus, eip155:&lt;chain&gt;"
+    string address "CAIP-10 account"
+    string proof_signature "EIP-191/712 or Daml party auth"
+    timestamp bound_at
+    timestamp revoked_at
+  }
+  TEXT_RECORD {
+    uuid id PK
+    uuid target_id FK
+    string key "e.g. avatar, email, url, lei"
+    string value
+    timestamp updated_at
+  }
+  BILLING_RECORD {
+    uuid id PK
+    uuid target_id FK
+    enum sku "NAME or DOMAIN_PREMIUM or DOMAIN_STANDARD or DOMAIN_BASIC"
+    decimal list_usdc
+    decimal paid_usdc
+    decimal discount_pct
+    enum kind "REGISTRATION or RENEWAL"
+    timestamp captured_at
+    string receipt_ref
+  }
+</div>
+
+<p><strong>State distribution (Phase 0):</strong></p>
+<ul>
+  <li><strong>DIAL backend (canonical):</strong> domains, namespaces, subnames, chain bindings, text records, billing — Postgres. Vault / HSM holds <em>DIAL's own</em> signing key (not user keys — DIAL is non-custodial).</li>
+  <li><strong>Canton + EVM-compatible chain:</strong> each hosts a <code>DialRegistry</code> contract storing <code>hash(fqn, owner, expires) + DIAL signature + lastUpdatedAt</code> — a signed mirror of the canonical row.</li>
+  <li><strong>Vodafone Pairpoint IDH (external):</strong> PII and identity documents — KYC docs, KYB business records, liveness samples. DIAL only holds the resulting attestation hash.</li>
+  <li><strong>Redis:</strong> resolver hot cache (fqn → chain-keyed address record), session state, rate-limit counters, cart contents.</li>
+</ul>
+
+<!-- =================================================== -->
+<h2 id="flows">8. Key User Flows</h2>
+<p class="meta">End-to-end paths a person walks through in the DIAL App, mapped to the services that handle each step. Every flow terminates in a state visible at the public Resolver (or, for sign-in, in an authenticated session). Solid arrows are synchronous; dotted arrows are events on the bus.</p>
+
+<h3>8.1 Sign in to the DIAL App</h3>
+<p>OAuth identity → Pairpoint AA derives the on-chain account. Keys never leave the user's device or live in DIAL.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant APP as DIAL App
+  participant OIDC as Google / Apple OIDC
+  participant AA as Pairpoint AA
+  participant GW as DIAL API
+
+  U->>APP: tap Sign in
+  APP->>OIDC: OAuth flow
+  OIDC-->>APP: id_token
+  APP->>AA: derive account from id_token
+  AA-->>APP: Canton party + EVM address
+  APP->>GW: open session (id_token + addresses)
+  GW-->>APP: session · no identity yet
+</div>
+<p class="meta"><strong>What DIAL stores at this point:</strong> session ↔ derived addresses. No PII; no IDH attestation yet — that lands at registration (§8.3).</p>
+
+<h3>8.2 Search &amp; price a name</h3>
+<p>Live availability check with a USDC quote — runs as the user types. Sub-300ms target.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant APP as DIAL App
+  participant GW as DIAL API
+  participant REG as Registrar
+  participant BI as Billing
+
+  U->>APP: type "alice"
+  APP->>APP: normalise (lowercase, IDNA, ≤63 chars)
+  APP->>GW: GET /v1/registrar/available?name=alice.dial
+  GW->>REG: validity + reserved + active checks
+  REG-->>GW: available
+  GW->>BI: GET /v1/billing/quote
+  BI-->>GW: 240 USDC · 180 USDC verified
+  GW-->>APP: { available, price, listPrice, discount }
+</div>
+<p class="meta"><strong>Discount surfaces here.</strong> If the user is signed in and KYC-verified, Billing returns the verified-tier quote (Phase 0: 25% off) — the cart shows it before Pay (§4.7 row 7.5).</p>
+
+<h3>8.3 Register a name (consumer / developer)</h3>
+<p>Cart → sign-in → identity verification (KYC) → pay → on-chain mirrors. The cart survives sign-in / sign-out so users can fill a basket before logging in.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant APP as DIAL App
+  participant GW as DIAL API
+  participant IDH as Pairpoint IDH
+  participant BI as Billing
+  participant REG as Registrar
+  participant REGY as Registry
+  participant SYNC as Chain Sync
+
+  U->>APP: add alice.dial to cart
+  U->>APP: open checkout
+  APP-->>U: Step 1 — Review
+  alt not signed in
+    APP-->>U: Step 2 — Sign in (§8.1)
+  end
+  alt not KYC-verified
+    APP-->>U: Step 3 — Verify identity
+    APP->>IDH: KYC (personal · document · liveness)
+    IDH-->>APP: attestation_hash
+  end
+  APP-->>U: Step 4 — Pay
+  APP->>BI: capture USDC
+  BI-->>APP: paid
+  APP->>GW: POST /v1/registrar/register
+  GW->>REG: register(alice.dial, owner, 1yr, attestation_hash)
+  REG->>REGY: write ownership row
+  REGY-)SYNC: identity.issued
+  SYNC-)SYNC: signed write → Canton + EVM
+  REG-->>APP: ACTIVE
+  APP-->>U: Step 5 — Done · open name
+</div>
+<p class="meta">The IDH step runs <em>once</em> per persona. Subsequent registrations for the same signed-in user skip steps 2–3.</p>
+
+<h3>8.4 Register a corporate domain (enterprise)</h3>
+<p>KYB-gated entry point for an enterprise. After registration, the enterprise issues names under the new domain (§8.5).</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as Admin
+  participant APP as DIAL App
+  participant IDH as Pairpoint IDH (KYB)
+  participant BI as Billing
+  participant REG as Registrar
+  participant REGY as Registry
+  participant SYNC as Chain Sync
+
+  U->>APP: search ".acme" in domain mode
+  APP->>REG: availability + length-tier price
+  REG-->>APP: available · 2,400 USDC/yr
+  U->>APP: add to cart · checkout
+  alt not KYB-verified
+    APP->>IDH: KYB (business · corporate · beneficial owners)
+    IDH-->>APP: business_attestation_hash
+  end
+  APP->>BI: capture USDC (domain SKU)
+  BI-->>APP: paid
+  APP->>REG: register(.acme, owner, 1yr, business_attestation_hash)
+  REG->>REGY: write apex domain row
+  REGY-)SYNC: identity.issued (domain)
+  APP-->>U: .acme issued · Issue names →
+</div>
+<p class="meta"><strong>Apex doesn't bind a chain.</strong> The domain is a container — only the names under it carry chain addresses (§4.1 row 1.5).</p>
+
+<h3>8.5 Issue a name under your corporate domain</h3>
+<p>Domain owner creates names like <code>finance.acme</code>. No second KYB step — the parent domain's attestation covers the children. No additional billing cycle by default — issuance under an owned domain is included.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as Admin
+  participant APP as DIAL App
+  participant REG as Registrar
+  participant REGY as Registry
+  participant SYNC as Chain Sync
+
+  U->>APP: open .acme · Issue name
+  U->>APP: label = "finance"
+  APP->>REG: availability under .acme
+  REG-->>APP: available
+  U->>APP: confirm
+  APP->>REG: register(finance.acme, parent=.acme, owner)
+  REG->>REGY: write namespace row
+  REGY-)SYNC: identity.issued
+  SYNC-)SYNC: signed write → Canton + EVM
+  APP-->>U: finance.acme issued
+</div>
+
+<h3>8.6 Bind a chain address (manage records)</h3>
+<p>Owner adds or updates a Canton party / EVM address on a name they own. Proof-of-control is required per chain — DIAL never trusts a self-declared address.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as Owner
+  participant APP as DIAL App
+  participant AA as Pairpoint AA
+  participant GW as DIAL API
+  participant RES as Resolver
+  participant SYNC as Chain Sync
+
+  U->>APP: open finance.acme · Records
+  U->>APP: enter EVM address 0x…
+  APP->>AA: request EIP-712 proof-of-control
+  AA-->>APP: signature
+  APP->>GW: POST /v1/resolver/finance.acme/addr/evm
+  GW->>RES: verify signature · write record
+  RES-)SYNC: chain.binding.added
+  SYNC-)SYNC: signed write → EVM DialRegistry
+  RES-->>APP: 200 · current records
+  APP-->>U: saved · visible to public Resolver
+</div>
+<p class="meta"><strong>Why proof-of-control?</strong> Prevents an owner binding an address they don't actually control. EIP-191/712 for EVM, Daml party auth for Canton (§4.5 row 5.4).</p>
+
+<h3>8.7 Public resolution (read path)</h3>
+<p>The fast path. A wallet, dapp, or SDK asks for a name; Resolver answers from cache with a DIAL-signed attestation the caller can verify locally.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant C as Caller (SDK / dapp)
+  participant GW as DIAL API
+  participant RES as Resolver
+  participant RD as Redis
+  participant PG as Postgres
+
+  C->>GW: GET /v1/resolver/alice.dial
+  GW->>RES: lookup
+  RES->>RD: cache hit?
+  alt cache hit
+    RD-->>RES: cached record
+  else miss
+    RES->>PG: read namespace + bindings
+    PG-->>RES: record
+    RES->>RD: cache (TTL)
+  end
+  RES-->>GW: addresses + DIAL-signed attestation
+  GW-->>C: JSON · sub-300ms
+  Note over C: SDK verifies attestation signature client-side
+</div>
+
+<h3>8.8 Renew &amp; Release</h3>
+<p>Two lifecycle paths — both bypass the cart. Renewal extends expiry; release sends the name to a 30-day grace period before it returns to the available pool.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as Owner
+  participant APP as DIAL App
+  participant BI as Billing
+  participant REGY as Registry
+  participant SYNC as Chain Sync
+
+  rect rgba(61,220,151,0.06)
+    Note over U,SYNC: Renew
+    U->>APP: open name · Renew
+    APP->>BI: capture USDC (renewal)
+    BI-->>APP: paid
+    APP->>REGY: extend expires_at +1yr
+    REGY-)SYNC: identity.renewed
+  end
+
+  rect rgba(255,180,84,0.06)
+    Note over U,SYNC: Release
+    U->>APP: open name · Release · confirm
+    APP->>REGY: mark GRACE (30 days)
+    REGY-)SYNC: identity.revoked
+    Note over REGY: after grace → EXPIRED → available pool
+  end
+</div>
+<p class="meta"><strong>Grace period.</strong> Released names sit in GRACE for 30 days before returning to the available pool — protects against accidental release and gives the owner a window to renew.</p>
+
+<!-- =================================================== -->
+<h2 id="stack">9. Tech Stack</h2>
+<table>
+  <thead><tr><th>Layer</th><th>Choice</th><th>Rationale</th></tr></thead>
+  <tbody>
+    <tr><td>Mobile</td><td>React Native + TypeScript</td><td>Single iOS/Android codebase, native modules for biometrics + secure enclave (user keys live here — non-custodial).</td></tr>
+    <tr><td>Account Abstraction</td><td>Pairpoint AA infrastructure (ERC-4337 bundler + paymaster for EVM, Daml party management for Canton)</td><td>Frictionless onboarding without DIAL ever holding user keys.</td></tr>
+    <tr><td>Backend services</td><td>Go (high-throughput: Resolver, Chain Sync) · TypeScript/NestJS (CRUD-heavy: Registry, Registrar, Billing)</td><td>Polyglot but disciplined — match language to workload.</td></tr>
+    <tr><td>Inter-service</td><td>gRPC + Protobuf · NATS JetStream for events</td><td>Strong contracts, low overhead, good DX.</td></tr>
+    <tr><td>Public API</td><td>REST + GraphQL (federated)</td><td>REST for SDKs, GraphQL for the console.</td></tr>
+    <tr><td>Source of truth</td><td>PostgreSQL + DIAL signing service (RS256, rotatable key)</td><td>Off-chain canonical store; no chain is privileged. Chains hold signed copies.</td></tr>
+    <tr><td>Canton support</td><td>Canton Network + Daml smart contracts (one of the chains)</td><td>Privacy-preserving Daml workflows for regulated counterparties — equal-tier with EVM chains.</td></tr>
+    <tr><td>EVM stack</td><td>Solidity 0.8.x · Foundry (test/deploy) · viem (TS) · WalletConnect v2 · per-chain RPC (Alchemy, Infura, QuickNode)</td><td>Reaches the majority of crypto users; CAIP-2/10/19 keep code chain-agnostic.</td></tr>
+    <tr><td>Chain abstraction</td><td>In-house CAL with typed <code>ChainAdapter</code> port · adapter registry config · gas/fee policy engine</td><td>Avoid leaking chain quirks (finality, fee markets, signing schemes) into core services.</td></tr>
+    <tr><td>OLTP</td><td>PostgreSQL 16 + Citus where needed</td><td>Mature, strong consistency, partitioning for fleet scale.</td></tr>
+    <tr><td>Cache</td><td>Redis 7 (cluster)</td><td>Resolver hot path.</td></tr>
+    <tr><td>Analytics</td><td>ClickHouse</td><td>Tx velocity, anomaly detection at billions of rows.</td></tr>
+    <tr><td>Object store</td><td>S3 (or GCS) with server-side encryption + CMK</td><td>KYC docs, exports.</td></tr>
+    <tr><td>Secrets / keys</td><td>HashiCorp Vault · Cloud HSM (AWS CloudHSM / Google Cloud HSM)</td><td>FIPS 140-2 L3 for DIAL's own signing keys (used by Chain Sync to sign on-chain attestations).</td></tr>
+    <tr><td>Infra</td><td>Kubernetes (EKS or GKE) · Terraform · ArgoCD</td><td>GitOps, multi-region active/active.</td></tr>
+    <tr><td>Observability</td><td>OpenTelemetry · Grafana · Loki · Tempo · Datadog (paid tier)</td><td>Trace request through resolver → service → Canton.</td></tr>
+    <tr><td>CI/CD</td><td>GitHub Actions · Buildkite (heavy jobs)</td><td>Container scans, SBOM, signed images.</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="security">10. Security &amp; Compliance</h2>
+
+<h3>10.1 Threat Model (Phase 0)</h3>
+<table>
+  <thead><tr><th>Threat</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td>Name squatting / phishing (homoglyphs)</td><td>IDNA2008 + custom skeleton-string check; reserved-name list.</td></tr>
+    <tr><td>Account takeover</td><td>DIAL is <strong>non-custodial</strong> — user keys live on device, so a server breach cannot drain accounts. Step-up Pairpoint IDH re-verification on sensitive ops. Biometric 2FA + device binding in the DIAL App.</td></tr>
+    <tr><td>Resolver poisoning</td><td>Resolver returns DIAL-signed attestations; SDK verifies signature client-side and pins DIAL's published public key.</td></tr>
+    <tr><td>Insider key misuse (DIAL signing key)</td><td>DIAL's <em>own</em> signing key in Vault / HSM with dual-control and audit log. User keys not held by DIAL — non-custodial.</td></tr>
+    <tr><td>Cross-chain replay</td><td>Every signed attestation carries domain separators (chainId + contract address); sync writes are nonce-protected per chain.</td></tr>
+    <tr><td>Stale on-chain copy</td><td><code>DialRegistry</code> on Canton and EVM-compatible chain expose <code>lastUpdatedAt</code>; SDKs refuse to verify against attestations older than N hours.</td></tr>
+    <tr><td>Bridge / cross-chain value theft</td><td><strong>Out of scope by design</strong> — DIAL never bridges value. Each chain settles natively.</td></tr>
+  </tbody>
+</table>
+
+<h3>10.2 Regulatory Posture (Phase 0)</h3>
+<ul>
+  <li><strong>GDPR</strong> — PII stays in Vodafone Pairpoint IDH; DIAL holds only attestation hashes.</li>
+  <li><strong>MiCA</strong> — DIAL is non-custodial. Identity issuance is the product; settlement happens in user-controlled wallets — DIAL doesn't custody crypto-assets.</li>
+  <li><strong>AML / CTF</strong> — Sanctions screening at Pairpoint IDH KYC.</li>
+  <li><strong>SOC 2 Type II</strong> targeted within 12 months of GA.</li>
+</ul>
+
+<!-- =================================================== -->
+<h2 id="deploy">11. Deployment &amp; Operations</h2>
+
+<h3>11.1 Environments (Phase 0)</h3>
+<ul>
+  <li><strong>dev</strong> — ephemeral preview environments per PR.</li>
+  <li><strong>staging</strong> — full-fidelity, anonymised data subset, against Canton testnet + EVM testnet.</li>
+  <li><strong>prod-eu</strong> — single region (Frankfurt), active. Hot-standby in the same region for the Resolver. Multi-region and on-prem deferred.</li>
+</ul>
+
+<h3>11.2 SLOs &amp; On-Call</h3>
+<ul>
+  <li>Per-service SLOs published; error budgets enforce release cadence.</li>
+  <li>Business-hours on-call for Phase 0 with paging for Resolver, Registry, and Registrar P0 incidents.</li>
+  <li>Runbook automation in Backstage + Rootly.</li>
+</ul>
+
+<!-- =================================================== -->
+<h2 id="roadmap">12. Phased Roadmap</h2>
+<table>
+  <thead><tr><th>Phase</th><th>Window</th><th>Scope</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Phase 0 — MVP (this spec)</strong></td><td>Q3 2026</td><td>DIAL App live for consumers, developers, and enterprises. Names under <code>.dial</code>; enterprises register their own corporate domains. Non-custodial via Pairpoint AA. Pairpoint IDH as identity gate (KYC + KYB). USDC settlement. <strong>Chains:</strong> Canton + one EVM-compatible chain. Target: ~20K domains + namespaces (including subnamespaces).</td></tr>
+    <tr><td>Phase 1 — Marketplace + EVM GA</td><td>Q4 2026</td><td>Listings, auctions, bids, fee engine. <strong>Chains:</strong> + Ethereum mainnet + Base; per-chain escrow contracts live.</td></tr>
+    <tr><td>Phase 2 — Distribution</td><td>H1 2027</td><td>Wallet SDK GA (multi-chain), browser NL interface, partner registrar programme. <strong>Chains:</strong> + Polygon, Arbitrum, Optimism.</td></tr>
+    <tr><td>Phase 3 — B2B &amp; Telco</td><td>H2 2027</td><td>Console GA, Agent Plane, IoT bulk pricing, SMS/RCS pilots, additional IDH capabilities (Identity Match, Address Verify, KYA, KYD). <strong>Chains:</strong> + Solana, Bitcoin Lightning.</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="risks">13. Risks &amp; Open Questions (Phase 0)</h2>
+<table>
+  <thead><tr><th>Risk / Question</th><th>Type</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>MiCA classification of DIAL Names</td><td>Regulatory</td><td>Are issued names "crypto-assets" under MiCA? External counsel needed before launch.</td></tr>
+    <tr><td>Pairpoint IDH market availability</td><td>Commercial</td><td>IDH coverage varies per Vodafone OpCo. Phase 0 launch markets list must be locked before signup goes live.</td></tr>
+    <tr><td>Pairpoint AA infrastructure dependency</td><td>Operational</td><td>Phase 0 depends on Pairpoint operating bundler / paymaster reliably on Canton and on the EVM-compatible chain. SLA + incident escalation path with Pairpoint platform team.</td></tr>
+    <tr><td>USDC settlement dependency</td><td>Commercial</td><td>USDC is the only Phase 0 settlement currency. Issuer (Circle) availability + regulatory risk; multi-asset support deferred.</td></tr>
+    <tr><td>Choice of EVM-compatible chain</td><td>Technical / Commercial</td><td>Which EVM-compatible chain? Selection criteria: low fees, finality, EU regulatory comfort, Pairpoint AA integration available.</td></tr>
+    <tr><td>Vodafone-customer-only TAM at launch</td><td>Commercial</td><td>Phase 0 ships only to Vodafone customers — the moat, but also caps TAM. Non-Vodafone expansion is a deliberate post-launch decision.</td></tr>
+    <tr><td>Reserved-name disputes</td><td>Process</td><td>Need a UDRP-equivalent process for DIAL launch namespaces — internal panel + appeal.</td></tr>
+    <tr><td>Canton + EVM sync lag</td><td>Technical</td><td>How fast does each chain catch up to a revoke? Need SLA + on-chain <code>lastUpdatedAt</code> check pattern enforced by the Wallet SDK.</td></tr>
+    <tr><td>On-chain divergence from canonical</td><td>Correctness</td><td>If sync to either chain fails, the DIAL canonical store always wins. Reconciler service + alerting required from day one.</td></tr>
+    <tr><td>Naming collision with ENS / Unstoppable</td><td>Brand</td><td>Phase 0 namespaces don't overlap with ENS; product/legal monitors for future collisions.</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  DIAL — Requirements &amp; Solution Architecture · Draft v0.1
+</footer>
+
+</div>
+
+<!-- Theme toggle -->
+<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">☀ Light</button>
+
+<!-- Lightbox for diagrams -->
+<div id="lightbox" class="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close">×</button>
+  <div class="lightbox-content" id="lightbox-content"></div>
+</div>
+
+<script>
+  function getMermaidConfig() {
+    const isLight = document.body.dataset.theme === 'light';
+    return {
+      startOnLoad: false,
+      theme: isLight ? 'default' : 'dark',
+      themeVariables: isLight ? {
+        primaryColor: '#ffffff',
+        primaryTextColor: '#1a1a1a',
+        primaryBorderColor: '#e60000',
+        lineColor: '#6b7280',
+        secondaryColor: '#faf8f1',
+        tertiaryColor: '#f5f3ec',
+        fontFamily: '-apple-system, BlinkMacSystemFont, Inter, sans-serif'
+      } : {
+        primaryColor: '#181c22',
+        primaryTextColor: '#e7e9ec',
+        primaryBorderColor: '#e60000',
+        lineColor: '#9aa3ad',
+        secondaryColor: '#14171c',
+        tertiaryColor: '#0b0d10',
+        fontFamily: '-apple-system, BlinkMacSystemFont, Inter, sans-serif'
+      },
+      flowchart: { curve: 'basis', useMaxWidth: true },
+      sequence: { useMaxWidth: true },
+      er: { useMaxWidth: true }
+    };
+  }
+
+  // Restore saved theme before mermaid renders
+  try {
+    const savedTheme = localStorage.getItem('dial-theme');
+    if (savedTheme === 'light') document.body.dataset.theme = 'light';
+  } catch (e) {}
+
+  function updateThemeToggleLabel() {
+    const btn = document.querySelector('.theme-toggle');
+    if (!btn) return;
+    btn.textContent = document.body.dataset.theme === 'light' ? '🌙 Dark' : '☀ Light';
+  }
+
+  function toggleTheme() {
+    const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
+    if (next === 'light') document.body.dataset.theme = 'light';
+    else document.body.removeAttribute('data-theme');
+    try { localStorage.setItem('dial-theme', next); } catch (e) {}
+    updateThemeToggleLabel();
+    // Re-render mermaid diagrams with new theme
+    mermaid.initialize(getMermaidConfig());
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const src = el.getAttribute('data-source') || el.textContent;
+      el.removeAttribute('data-processed');
+      el.innerHTML = src;
+      el.setAttribute('data-source', src);
+    });
+    mermaid.run();
+  }
+
+  // Snapshot original mermaid source before first render
+  document.querySelectorAll('.mermaid').forEach(el => {
+    el.setAttribute('data-source', el.textContent);
+  });
+
+  mermaid.initialize(getMermaidConfig());
+  updateThemeToggleLabel();
+
+  (async () => {
+    await mermaid.run();
+    document.querySelectorAll('.mermaid').forEach(el => {
+      el.addEventListener('click', () => openLightbox(el));
+    });
+  })();
+
+  function openLightbox(diagramEl) {
+    const svg = diagramEl.querySelector('svg');
+    if (!svg) return;
+    const content = document.getElementById('lightbox-content');
+    content.innerHTML = '';
+    const clone = svg.cloneNode(true);
+    clone.removeAttribute('style');
+    clone.style.maxWidth = '100%';
+    clone.style.maxHeight = '100%';
+    clone.style.width = 'auto';
+    clone.style.height = 'auto';
+    content.appendChild(clone);
+    document.getElementById('lightbox').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLightbox();
+  });
+
+  // Persist <details class="fr"> open/closed state across reloads (safe in sandboxed iframes).
+  document.querySelectorAll('details.fr').forEach(d => {
+    if (!d.id) return;
+    try {
+      const saved = localStorage.getItem(d.id);
+      if (saved === 'open') d.open = true;
+      if (saved === 'closed') d.open = false;
+    } catch (e) {}
+    d.addEventListener('toggle', () => {
+      try { localStorage.setItem(d.id, d.open ? 'open' : 'closed'); } catch (e) {}
+    });
+  });
+
+  function setAllFr(open) {
+    document.querySelectorAll('details.fr').forEach(d => {
+      d.open = open;
+      try { localStorage.setItem(d.id, open ? 'open' : 'closed'); } catch (e) {}
+    });
+  }
+
+  // Wrap each H2 chapter into a <details class="chapter"> so users can collapse whole sections.
+  function wrapChapters() {
+    const h2s = Array.from(document.querySelectorAll('h2'));
+    h2s.forEach(h2 => {
+      const content = [];
+      let sibling = h2.nextElementSibling;
+      while (sibling && sibling.tagName !== 'H2' && sibling.tagName !== 'FOOTER') {
+        content.push(sibling);
+        sibling = sibling.nextElementSibling;
+      }
+      const details = document.createElement('details');
+      details.className = 'chapter';
+      details.open = true;
+      if (h2.id) details.id = h2.id;
+
+      const summary = document.createElement('summary');
+      summary.textContent = h2.textContent;
+      details.appendChild(summary);
+
+      h2.parentNode.insertBefore(details, h2);
+      h2.remove();
+      content.forEach(el => details.appendChild(el));
+
+      if (details.id) {
+        const key = 'dial-ch-' + details.id;
+        try {
+          const saved = localStorage.getItem(key);
+          if (saved === 'closed') details.open = false;
+          else if (saved === 'open') details.open = true;
+        } catch (e) {}
+        details.addEventListener('toggle', () => {
+          try { localStorage.setItem(key, details.open ? 'open' : 'closed'); } catch (e) {}
+        });
+      }
+    });
+
+    // Auto-open chapter when navigating to its anchor
+    function openHashChapter() {
+      const hash = location.hash.slice(1);
+      if (!hash) return;
+      const target = document.getElementById(hash);
+      if (target && target.tagName === 'DETAILS' && !target.open) target.open = true;
+    }
+    openHashChapter();
+    window.addEventListener('hashchange', openHashChapter);
+  }
+
+  wrapChapters();
+</script>
+</body>
+</html>
