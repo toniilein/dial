@@ -66,6 +66,9 @@ function DialTopBar() {
         {loggedIn && (
           <button className={`dial-nav-item ${active === 'dashboard' || active === 'name' || active === 'domain' ? 'active' : ''}`} onClick={onNav('dashboard')}>My names</button>
         )}
+        {loggedIn && (
+          <button className={`dial-nav-item ${active === 'inbox' || active === 'conversation' ? 'active' : ''}`} onClick={onNav('inbox')}>Inbox</button>
+        )}
         <button className="dial-nav-item" onClick={() => dispatch({ type: 'toast', toast: { kind: 'info', text: 'Developer docs are out of scope for this demo.' } })}>Developers</button>
       </div>
 
@@ -95,7 +98,7 @@ function DialTopBar() {
           <div ref={avatarRef} style={{ position: 'relative' }}
             onMouseEnter={openAvatar} onMouseLeave={closeAvatarSoon}>
             <div className="dial-avatar" title={id.name} style={{ cursor: 'pointer' }}>
-              {id.initials || (isAcme ? 'A' : 'AM')}
+              {id.initials || (isAcme ? 'A' : 'DP')}
             </div>
             <AvatarPopover open={avatarOpen} onClose={() => setAvatarOpen(false)} />
           </div>
@@ -346,7 +349,7 @@ function ScreenHome() {
 
   const suggestions = mode === 'domain'
     ? ['globex', 'initech', 'soylent', 'umbrella', 'pied-piper']
-    : ['alice', 'acme', 'satoshi', 'vodafone-treasury', 'dao-of-dao'];
+    : ['david', 'acme', 'satoshi', 'vodafone-treasury', 'dao-of-dao'];
 
   return (
     <div className="dial-section" style={{ paddingTop: isAcme ? 40 : 56 }}>
@@ -360,7 +363,7 @@ function ScreenHome() {
         <p className="dial-muted" style={{ maxWidth: 560, margin: '0 auto', fontSize: 15 }}>
           {mode === 'domain'
             ? <>Register a verifiable corporate TLD — like <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>.acme</code> — and issue an unlimited number of names under it for teams, services, and vaults.</>
-            : <>Register a DIAL name — like <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>alice.dial</code> — and map it to your Canton party and EVM address. Counterparties send to the name. Identity verified through Pairpoint.</>}
+            : <>Register a DIAL name — like <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>david.dial</code> — and map it to your Canton party and EVM address. Counterparties send to the name. Identity verified through Pairpoint.</>}
         </p>
       </div>
 
@@ -382,7 +385,7 @@ function ScreenHome() {
           <Search size={20} stroke="var(--dial-muted)" />
           {mode === 'domain' && <span className="suffix">.</span>}
           <input ref={inputRef}
-            placeholder={mode === 'domain' ? 'acme' : 'alice'}
+            placeholder={mode === 'domain' ? 'acme' : 'david'}
             value={state.query}
             onFocus={() => setFocus(true)}
             onBlur={() => setFocus(false)}
@@ -763,15 +766,20 @@ function ScreenNameDetail() {
             <span className="dial-pill"><Calendar size={11} /> Expires {name.expires}</span>
           </div>
         </div>
+        <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
+          <Globe size={14} /> View page
+        </button>
         <button className="dial-btn" onClick={() => renewName(state, dispatch, name.name)}><Refresh size={14} /> Renew</button>
-        <button className="dial-btn" onClick={() => setTab('records')}><Edit size={14} /> Edit</button>
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
         {[
-          ['records',  'Chain records', Object.keys(name.records).length],
-          ['subnames', 'Subnames',      (name.subnames || []).length],
-          ['settings', 'Settings',      null],
+          ['records',      'Chain records', Object.keys(name.records).length],
+          ['links',        'Links',         LINK_PLATFORMS.filter(p => (name.text || {})[p.key]).length],
+          ['modes',        'Modes',         null],
+          ['receptionist', 'Receptionist',  null],
+          ['subnames',     'Subnames',      (name.subnames || []).length],
+          ['settings',     'Settings',      null],
         ].map(([k, label, count]) => (
           <button key={k}
             onClick={() => setTab(k)}
@@ -790,9 +798,405 @@ function ScreenNameDetail() {
         ))}
       </div>
 
-      {tab === 'records'  && <NameRecords name={name} />}
-      {tab === 'subnames' && <NameSubnames name={name} />}
-      {tab === 'settings' && <NameSettings name={name} />}
+      {tab === 'records'      && <NameRecords name={name} />}
+      {tab === 'links'        && <NameLinks name={name} />}
+      {tab === 'modes'        && <NameModes name={name} />}
+      {tab === 'receptionist' && <NameReceptionist name={name} />}
+      {tab === 'subnames'     && <NameSubnames name={name} />}
+      {tab === 'settings'     && <NameSettings name={name} />}
+    </div>
+  );
+}
+
+// Linktree-style social links editor — one row per platform, stored as text
+// records and shown on the public address page.
+function NameLinks({ name }) {
+  const { state, dispatch } = useDial();
+  const initial = () => {
+    const t = name.text || {};
+    const o = {};
+    LINK_PLATFORMS.forEach(p => { o[p.key] = t[p.key] || ''; });
+    return o;
+  };
+  const [form, setForm] = React.useState(initial);
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => { setForm(initial()); }, [name.name, JSON.stringify(name.text)]);
+
+  const dirty = LINK_PLATFORMS.some(p => (form[p.key] || '').trim() !== ((name.text || {})[p.key] || '').trim());
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    try { await saveLinks(state, dispatch, name.name, form); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <h3 className="dial-h3" style={{ margin: 0 }}>Links</h3>
+          {dirty && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="dial-btn sm" onClick={() => setForm(initial())} disabled={saving}>Discard</button>
+              <button className="dial-btn primary sm" onClick={save} disabled={saving}>
+                {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> Save</>}
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          Add the ways people can reach you. These appear as buttons on your public page — like a Linktree for your DIAL name.
+        </div>
+
+        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {LINK_PLATFORMS.map((p, i) => (
+            <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+              borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
+              <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--dial-radius-sm)', background: p.color, color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.mark}</div>
+              <div style={{ width: 84, flexShrink: 0, fontSize: 13, fontWeight: 600 }}>{p.label}</div>
+              <input value={form[p.key]} onChange={e => set(p.key, e.target.value)} placeholder={p.placeholder}
+                style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+                  color: 'var(--dial-text)', padding: '7px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12.5, outline: 'none' }} />
+              {form[p.key] ? <button className="dial-iconbtn" title="Clear" onClick={() => set(p.key, '')}><X size={14} /></button> : <span style={{ width: 28 }} />}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
+            <Globe size={13} /> View public page
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="dial-h3">Preview</h3>
+        <div className="dial-card" style={{ padding: 14 }}>
+          {(() => {
+            const links = nameLinks(form);
+            if (links.length === 0) return <div className="dial-muted" style={{ fontSize: 12 }}>No links yet — add some on the left.</div>;
+            return <div style={{ display: 'grid', gap: 8 }}>{links.map(l => <LinkButton key={l.key} l={l} preview />)}</div>;
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A single Linktree button — used on the public page and the editor preview.
+function LinkButton({ l, preview }) {
+  const inner = (
+    <>
+      <div style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 'var(--dial-radius-sm)', background: l.color, color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{l.mark}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{l.label}</div>
+        <div className="dial-muted" style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.value}</div>
+      </div>
+      {!preview && <ArrowR size={14} stroke="var(--dial-muted)" />}
+    </>
+  );
+  const style = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+    border: 'var(--dial-border-w) solid var(--dial-border)', borderRadius: 'var(--dial-radius)',
+    background: 'var(--dial-surface)', textDecoration: 'none', color: 'var(--dial-text)' };
+  if (preview || !l.href) return <div style={style}>{inner}</div>;
+  return <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" style={style}>{inner}</a>;
+}
+
+// Owner-side modular profile modes — toggle modes on/off directly or by
+// talking to the mode agent (scripted; mirrors the "update by receptionist" idea).
+function NameModes({ name }) {
+  const { state, dispatch } = useDial();
+  const org = state.org;
+  const [modes, setModes] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [msgs, setMsgs] = React.useState([{ role: 'agent', content: "Hi — I manage your profile modes. Tell me what to switch on or off, e.g. “turn on conference mode”, “open for partnerships”, or “close the profile”." }]);
+  const [input, setInput] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const scrollRef = React.useRef(null);
+
+  React.useEffect(() => {
+    let c = false;
+    setLoading(true);
+    loadOwnerModes(org, name.name).then(r => { if (!c) { setModes(r.modes); setLoading(false); } })
+      .catch(() => { if (!c) { setModes([]); setLoading(false); } });
+    return () => { c = true; };
+  }, [org, name.name]);
+  React.useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs, sending]);
+
+  const send = async () => {
+    const t = input.trim();
+    if (!t || sending) return;
+    setMsgs(m => [...m, { role: 'owner', content: t }]); setInput(''); setSending(true);
+    try {
+      const r = await sendModeAgent(org, name.name, t);
+      setMsgs(m => [...m, { role: 'agent', content: r.reply }]);
+      setModes(r.modes);
+    } catch (e) { setMsgs(m => [...m, { role: 'agent', content: 'Something went wrong: ' + e.message }]); }
+    finally { setSending(false); }
+  };
+  const toggle = async (m) => {
+    try { const r = await setModeActive(org, name.name, m.key, !m.active); setModes(r.modes); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
+  };
+  const makePrimary = async (m) => {
+    try { const r = await setModePrimary(org, name.name, m.key); setModes(r.modes); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
+  };
+
+  if (loading) return <div className="dial-muted" style={{ fontSize: 13 }}>Loading modes…</div>;
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+      <div>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Mode agent</h3>
+        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>Switch profile modes on or off in plain language — like updating your profile by chat.</div>
+        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div ref={scrollRef} style={{ maxHeight: 300, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {msgs.map((m, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: m.role === 'owner' ? 'flex-end' : 'flex-start' }}>
+                <div style={{ maxWidth: '82%', padding: '8px 12px', borderRadius: 'var(--dial-radius)', fontSize: 13, lineHeight: 1.45,
+                  background: m.role === 'owner' ? 'var(--dial-accent)' : 'var(--dial-surface)',
+                  color: m.role === 'owner' ? '#fff' : 'var(--dial-text)',
+                  border: m.role === 'owner' ? '0' : 'var(--dial-border-w) solid var(--dial-border)' }}>{m.content}</div>
+              </div>
+            ))}
+            {sending && <div className="dial-muted" style={{ fontSize: 12 }}>working…</div>}
+          </div>
+          <div style={{ padding: 12, borderTop: 'var(--dial-border-w) solid var(--dial-border)', display: 'flex', gap: 8 }}>
+            <input value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder={'e.g. "turn on conference mode"'} disabled={sending}
+              style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+                color: 'var(--dial-text)', padding: '9px 12px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none' }} />
+            <button className="dial-btn primary" onClick={send} disabled={sending || !input.trim()}>Send</button>
+          </div>
+        </div>
+        <div className="dial-muted" style={{ fontSize: 11, marginTop: 8 }}>Try: "open for partnerships", "start hiring", "make partnership primary", "close the profile".</div>
+      </div>
+
+      <div>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Modes</h3>
+        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>Active modes appear on your public profile. The primary mode shows first.</div>
+        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {(modes || []).map((m, i) => (
+            <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+              borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)', opacity: m.active ? 1 : 0.62 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {m.title}
+                  {m.active && m.primary && <span style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 10, textTransform: 'uppercase',
+                    color: 'var(--dial-accent)', border: '1px solid var(--dial-accent)', borderRadius: 999, padding: '2px 7px' }}>Primary</span>}
+                  {m.kind === 'module' && <span style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 10, textTransform: 'uppercase',
+                    color: 'var(--dial-muted)', border: '1px solid var(--dial-border)', borderRadius: 999, padding: '2px 7px' }}>Module</span>}
+                </div>
+                <div className="dial-muted" style={{ fontSize: 12 }}>{m.label} · {m.status}</div>
+              </div>
+              {m.active && !m.primary && m.kind !== 'module' && <button className="dial-btn sm" onClick={() => makePrimary(m)}>Make primary</button>}
+              <button className="dial-btn sm" onClick={() => toggle(m)}
+                style={m.active ? { borderColor: 'var(--dial-accent)', color: 'var(--dial-accent)', fontWeight: 600 } : {}}>{m.active ? 'On' : 'Off'}</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
+            <Globe size={13} /> View public page
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Owner-side receptionist setup — ported from adihus/dial's Setup page.
+function NameReceptionist({ name }) {
+  const { state, dispatch } = useDial();
+  const persona = state.identity[state.org];
+  const [cfg, setCfg] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [form, setForm] = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadReceptionist(state.org, name.name).then(c => {
+      if (cancelled) return;
+      setCfg(c);
+      const ownerFirst = (persona.name || '').split(' ')[0] || 'me';
+      setForm(c || {
+        owner_name: persona.name || '',
+        receptionist_name: ownerFirst + "'s Receptionist",
+        headline: '',
+        bio: '',
+        greeting: '',
+        forwarding_email: persona.email || '',
+        active: 1,
+      });
+      setLoading(false);
+    }).catch(() => { if (!cancelled) { setForm({ owner_name: persona.name || '', receptionist_name: '', headline:'', bio:'', greeting:'', forwarding_email: persona.email || '', active: 1 }); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [name.name, state.org]);
+
+  if (loading || !form) return <div className="dial-muted" style={{ fontSize: 13 }}>Loading…</div>;
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const canSave = (form.owner_name || '').trim() && (form.receptionist_name || '').trim();
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const saved = await saveReceptionist(state, dispatch, name.name, {
+        owner_name: form.owner_name, receptionist_name: form.receptionist_name,
+        headline: form.headline, bio: form.bio, greeting: form.greeting,
+        forwarding_email: form.forwarding_email, active: form.active ? 1 : 0,
+      });
+      setCfg(saved); setForm(saved);
+    } catch (e) {
+      dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } });
+    } finally { setSaving(false); }
+  };
+
+  const fieldStyle = { width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+    color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none' };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <h3 className="dial-h3" style={{ margin: 0 }}>{cfg ? 'Receptionist' : 'Set up a receptionist'}</h3>
+          {cfg && <span className={`dial-pill ${cfg.active ? 'ok' : 'warn'}`}>{cfg.active ? 'Live' : 'Paused'}</span>}
+        </div>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
+          Visitors to your public page chat with your receptionist. It takes a message, asks for the details, and drops a summary in your <a style={{ color: 'var(--dial-accent)', cursor: 'pointer' }} onClick={() => dispatch({ type: 'route', route: { screen: 'inbox' } })}>inbox</a>. It never speaks as you or makes commitments.
+        </div>
+
+        <div className="dial-card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <div className="dial-field-label">Your name</div>
+              <input value={form.owner_name} onChange={e => set('owner_name', e.target.value)} style={fieldStyle} placeholder="e.g. David Palmer" />
+            </div>
+            <div>
+              <div className="dial-field-label">Receptionist name</div>
+              <input value={form.receptionist_name} onChange={e => set('receptionist_name', e.target.value)} style={fieldStyle} placeholder="e.g. David's Receptionist" />
+            </div>
+          </div>
+          <div>
+            <div className="dial-field-label">Headline</div>
+            <input value={form.headline || ''} onChange={e => set('headline', e.target.value)} style={fieldStyle} placeholder="e.g. Designer · non-custodial identity" />
+          </div>
+          <div>
+            <div className="dial-field-label">About you (bio)</div>
+            <textarea value={form.bio || ''} onChange={e => set('bio', e.target.value)} rows={3} style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} placeholder="A short bio shown on your public page." />
+          </div>
+          <div>
+            <div className="dial-field-label">Greeting</div>
+            <input value={form.greeting || ''} onChange={e => set('greeting', e.target.value)} style={fieldStyle} placeholder="Hi, I'm … I can take a message and forward a summary." />
+          </div>
+          <div>
+            <div className="dial-field-label">Forwarding email</div>
+            <input value={form.forwarding_email || ''} onChange={e => set('forwarding_email', e.target.value)} style={{ ...fieldStyle, fontFamily: 'var(--dial-font-mono)' }} placeholder="you@example.com" />
+            <div className="dial-muted" style={{ fontSize: 11, marginTop: 4 }}>PoC: summaries are delivered to your in-app inbox (no real email sent).</div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!form.active} onChange={e => set('active', e.target.checked ? 1 : 0)} style={{ accentColor: 'var(--dial-accent)' }} />
+            Receptionist is live (visitors can chat)
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="dial-btn primary" onClick={save} disabled={!canSave || saving}>
+              {saving ? <><Spinner size={13} stroke="#fff" /> Saving</> : <><Check size={13} stroke="#fff" /> {cfg ? 'Save changes' : 'Create receptionist'}</>}
+            </button>
+            <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
+              <Globe size={13} /> View public page
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="dial-h3">How it works</h3>
+        <div className="dial-card" style={{ padding: 14, fontSize: 12.5, color: 'var(--dial-text-2)', lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 8 }}><strong>1 · Greet</strong> — welcomes the visitor and explains it's your receptionist.</div>
+          <div style={{ marginBottom: 8 }}><strong>2 · Collect</strong> — name, contact, topic, and the next step they want.</div>
+          <div style={{ marginBottom: 8 }}><strong>3 · Summarise</strong> — writes a clean summary once it has enough.</div>
+          <div><strong>4 · Forward</strong> — drops it in your inbox for you to follow up.</div>
+        </div>
+        <div className="dial-card tint" style={{ padding: 12, marginTop: 12, fontSize: 12, color: 'var(--dial-muted)' }}>
+          Adapted from a colleague's <code className="dial-mono" style={{ background: 'transparent' }}>DIAL Receptionist</code> PoC. Scripted intake — no external AI in this build.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Add / edit the name's EVM (eip155:1) address — proof-of-control mocked,
+// but the 0x + 40-hex shape is validated client- and server-side.
+function EvmEditor({ name }) {
+  const { state, dispatch } = useDial();
+  const current = name.records['eip155:1'] || '';
+  const [open, setOpen] = React.useState(false);
+  const [value, setValue] = React.useState(current);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  React.useEffect(() => { setValue(current); setErr(null); }, [current]);
+
+  const valid = isEvmAddress(value);
+  const save = async () => {
+    setErr(null); setSaving(true);
+    try {
+      await addEvmAddress(state, dispatch, name.name, value);
+      setOpen(false);
+    } catch (e) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (current && !open) {
+    return (
+      <div className="dial-card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: '#2b6cff', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>EVM</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>EVM-compatible</span>
+            <code className="dial-mono dial-muted" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>eip155:1</code>
+          </div>
+          <code className="dial-mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{current}</code>
+        </div>
+        <button className="dial-btn sm" onClick={() => setOpen(true)}><Edit size={12} /> Edit</button>
+      </div>
+    );
+  }
+
+  if (!current && !open) {
+    return (
+      <button className="dial-btn sm" onClick={() => setOpen(true)}>
+        <Plus size={12} /> Add EVM address
+      </button>
+    );
+  }
+
+  return (
+    <div className="dial-card" style={{ padding: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>EVM-compatible <code className="dial-mono dial-muted" style={{ fontSize: 11 }}>eip155:1</code></span>
+        <span className="dial-muted" style={{ fontSize: 11 }}>0x + 40 hex</span>
+      </div>
+      <input value={value} onChange={e => setValue(e.target.value)} placeholder="0x…" autoFocus
+        style={{ width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid ' + (value && !valid ? 'var(--dial-warn)' : 'var(--dial-border)'),
+          color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)',
+          fontFamily: 'var(--dial-font-mono)', fontSize: 12, outline: 'none' }} />
+      {value && !valid && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>Expected 0x followed by 40 hex characters.</div>}
+      {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>{err}</div>}
+      <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>Binding requires proof of control (EIP-191/712) — mocked in this PoC.</div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button className="dial-btn sm" onClick={() => { setOpen(false); setValue(current); setErr(null); }} disabled={saving}>Cancel</button>
+        <button className="dial-btn primary sm" onClick={save} disabled={!valid || saving}>
+          {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> {current ? 'Update' : 'Add'} EVM address</>}
+        </button>
+      </div>
     </div>
   );
 }
@@ -866,8 +1270,8 @@ function NameRecords({ name }) {
             </div>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="dial-btn sm" disabled><Plus size={12} /> Add chain (Phase 1)</button>
+        <div style={{ marginTop: 14 }}>
+          <EvmEditor name={name} />
         </div>
 
         <h3 className="dial-h3" style={{ marginTop: 26, marginBottom: 10 }}>Text records</h3>
@@ -1008,8 +1412,6 @@ function ScreenDomainDetail() {
   if (!domain) {
     return <div className="dial-section"><div className="dial-card" style={{ padding: 24 }}>Domain not found.</div></div>;
   }
-  // 'base' tab removed — the apex domain doesn't bind a Canton party.
-  React.useEffect(() => { if (tab === 'base') setTab('names'); }, [tab]);
 
   return (
     <div className="dial-section wide" style={{ maxWidth: 1100 }}>
@@ -1132,97 +1534,6 @@ function DomainNames({ domain }) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function DomainBase({ domain }) {
-  const { state, dispatch } = useDial();
-  const [records, setRecords] = React.useState(domain.base);
-  const [dirty, setDirty] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  React.useEffect(() => { setRecords(domain.base); setDirty(false); }, [domain.domain, JSON.stringify(domain.base)]);
-  const update = (key, val) => { setRecords({ ...records, [key]: val }); setDirty(true); };
-  const save = async () => {
-    setSaving(true);
-    try {
-      await updateDomainRecords(state, dispatch, domain.domain, records);
-      setDirty(false);
-    } catch (e) {
-      dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const cantonNs = (window.CANTON_NS && window.CANTON_NS.fingerprint) || '';
-  const chainMeta = {
-    'canton:omnibus': {
-      label: 'Canton',
-      sub: cantonNs
-        ? `Apex party id · DIAL ns ${cantonNs.slice(0, 10)}…`
-        : 'Default Canton party for the apex domain',
-      mark: 'CN',  color: '#5f6cff',
-    },
-    'eip155:1':       { label: 'EVM-compatible', sub: 'Default EVM account for the apex domain',  mark: 'EVM', color: '#3ddc97' },
-  };
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <h3 className="dial-h3">Apex records · resolved by <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{domain.domain}</code></h3>
-          {dirty && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="dial-btn sm" onClick={() => { setRecords(domain.base); setDirty(false); }} disabled={saving}>Discard</button>
-              <button className="dial-btn primary sm" onClick={save} disabled={saving}>
-                {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> Save</>}
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {Object.entries(chainMeta).map(([k, m], i) => (
-            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-              <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: m.color, color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>
-                {m.mark}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{m.label}</span>
-                  <code className="dial-mono dial-muted" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>{k}</code>
-                </div>
-                <div className="dial-muted" style={{ fontSize: 11, marginBottom: 6 }}>{m.sub}</div>
-                <input value={records[k] || ''} onChange={e => update(k, e.target.value)}
-                  style={{ width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
-                    color: 'var(--dial-text)', padding: '7px 10px', borderRadius: 'var(--dial-radius-sm)',
-                    fontFamily: 'var(--dial-font-mono)', fontSize: 12, outline: 'none' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="dial-card tint" style={{ padding: 12, fontSize: 12, color: 'var(--dial-muted)', display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10 }}>
-          <Shield size={14} stroke="var(--dial-muted)" style={{ marginTop: 1 }} />
-          Resolving <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{domain.domain}</code> directly returns these records.
-          Issued names like <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>finance{domain.domain}</code> override them with their own.
-        </div>
-      </div>
-
-      <div>
-        <h3 className="dial-h3">Resolver preview</h3>
-        <div className="dial-card tint" style={{ padding: 14, fontFamily: 'var(--dial-font-mono)', fontSize: 11 }}>
-          <div className="dial-muted">GET /v1/domains/{domain.domain.slice(1)}</div>
-          <pre style={{ margin: '8px 0 0', padding: 0, background: 'transparent', border: 0, color: 'var(--dial-text)', whiteSpace: 'pre-wrap' }}>
-{`{
-  "domain": "${domain.domain}",
-  "addresses": ${JSON.stringify(records, null, 2).split('\n').join('\n  ')},
-  "attestation_hash": "${shortHash(domain.attestation)}",
-  "expires_at": "${domain.expires}"
-}`}
-          </pre>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1386,9 +1697,468 @@ function Row({ k, v, bold }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// Public address page (retail) — profile + chain addresses + receptionist
+// chat. Reachable by name; no auth. Ported from adihus/dial's Public page.
+// ─────────────────────────────────────────────────────────────
+// Editorial public-profile design tokens (ported from the profile redesign).
+const PUB = {
+  paper: '#efe9dd', card: '#fffdf7', ink: '#16130d', muted: '#776f60',
+  hair: 'rgba(22,19,13,.12)', red: '#e60012', black: '#121110',
+  sand: '#b3a895', cream: '#f4eee2',
+  mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+  sans: "'Archivo', 'Helvetica Neue', Helvetica, Arial, sans-serif",
+};
+function pubBackBtn() {
+  return { background: 'transparent', border: 0, color: PUB.muted, fontFamily: PUB.mono, fontSize: 12,
+    textTransform: 'uppercase', letterSpacing: '.08em', cursor: 'pointer', padding: '6px 2px', marginBottom: 14 };
+}
+function pubPill() {
+  return { fontFamily: PUB.mono, fontSize: 12, border: '1px solid rgba(255,255,255,.24)', borderRadius: 999,
+    padding: '9px 14px', color: PUB.cream, textDecoration: 'none', display: 'inline-block', whiteSpace: 'nowrap' };
+}
+function pubModeStatus(closed) {
+  return { fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderRadius: 999,
+    padding: '8px 11px', whiteSpace: 'nowrap', border: '1px solid currentColor',
+    color: closed ? '#b8000e' : '#1c7c45', background: closed ? '#fff1f1' : '#f0fff4' };
+}
+function pubCta() {
+  return { appearance: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid ' + PUB.black,
+    background: PUB.black, color: PUB.cream, borderRadius: 14, padding: '12px 16px', fontWeight: 700, fontSize: 14, fontFamily: PUB.sans };
+}
+
+// Shared body for a mode/module block — renders whichever content fits:
+// appearances (items), social signals, or the 3 detail cards (minis).
+function PubBlockBody({ m }) {
+  if (m.items && m.items.length > 0) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        {m.items.map((it, i) => (
+          <div key={i} className="pub-appt" style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 16,
+            alignItems: 'center', padding: '14px 0', borderTop: '1px solid ' + PUB.hair }}>
+            <div style={{ fontFamily: PUB.mono, textAlign: 'center', minWidth: 56, border: '1px solid ' + PUB.hair,
+              borderRadius: 12, padding: '7px 6px', background: PUB.card, lineHeight: 1.1 }}>
+              <div style={{ fontSize: 10.5, color: PUB.muted, textTransform: 'uppercase', letterSpacing: '.06em' }}>{it.mon}</div>
+              <strong style={{ fontSize: 18 }}>{it.day}</strong>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{it.title}</div>
+              <div style={{ fontSize: 13, color: PUB.muted, marginTop: 2 }}>{it.sub}</div>
+            </div>
+            <span style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em',
+              border: '1px solid ' + PUB.hair, borderRadius: 999, padding: '6px 10px', whiteSpace: 'nowrap', background: PUB.card,
+              justifySelf: 'start' }}>{it.tag}</span>
+          </div>
+        ))}
+        <div style={{ borderTop: '1px solid ' + PUB.hair }} />
+      </div>
+    );
+  }
+  if (m.signals && m.signals.length > 0) {
+    return (
+      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+        {m.signals.map((s, i) => (
+          <div key={i} style={{ border: '1px solid ' + PUB.hair, borderRadius: 14, padding: '14px 16px', background: PUB.card }}>
+            <div style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', color: PUB.red, marginBottom: 7 }}>{s.source}</div>
+            <p style={{ fontSize: 14.5, color: '#272727', lineHeight: 1.5 }}>{s.text}</p>
+            <div style={{ fontFamily: PUB.mono, fontSize: 11, color: PUB.muted, marginTop: 10 }}>{s.meta}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (m.minis && m.minis.length > 0) {
+    return (
+      <div className="pub-mini" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginTop: 18 }}>
+        {m.minis.map(([a, b], i) => (
+          <div key={i} style={{ border: '1px solid ' + PUB.hair, borderRadius: 14, padding: '12px 14px', background: PUB.card }}>
+            <b style={{ display: 'block', fontSize: 12.5, marginBottom: 5 }}>{a}</b>
+            <span style={{ fontSize: 12.5, color: PUB.muted, lineHeight: 1.45 }}>{b}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
+function ScreenPublic() {
+  const { state, dispatch } = useDial();
+  const name = state.route.name;
+  const [page, setPage] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr] = React.useState(null);
+  const reqRef = React.useRef(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setErr(null);
+    loadPublic(name).then(p => { if (!cancelled) { setPage(p); setLoading(false); } })
+      .catch(e => { if (!cancelled) { setErr(e.message); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [name]);
+
+  const back = () => {
+    if (state.route.from === 'name') dispatch({ type: 'route', route: { screen: 'name', name } });
+    else if (state.loggedIn) dispatch({ type: 'route', route: { screen: 'dashboard' } });
+    else dispatch({ type: 'route', route: { screen: 'home' } });
+  };
+
+  if (loading) return <div style={{ padding: 48, fontFamily: PUB.mono, color: PUB.muted, fontSize: 13 }}>Loading…</div>;
+  if (err || !page) {
+    return (
+      <div style={{ maxWidth: 980, margin: '0 auto', padding: '24px 24px 70px', fontFamily: PUB.sans, color: PUB.ink }}>
+        <button onClick={back} style={pubBackBtn()}>← Back</button>
+        <div style={{ background: PUB.card, border: '1px solid ' + PUB.hair, borderRadius: 20, padding: 40, textAlign: 'center' }}>
+          <div style={{ fontWeight: 700, fontSize: 20 }}>Nothing here yet.</div>
+          <div style={{ color: PUB.muted, fontSize: 14, marginTop: 6 }}>{name} doesn't have a public page.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const prof = page.profile || {};
+  const display = page.display_address;
+  const ownerName = prof.owner_name || name;
+  const firstName = ownerName.split(' ')[0] || ownerName;
+  const addrs = page.addresses || {};
+  const addrRows = [
+    addrs['canton:omnibus'] && { label: 'Canton', caip: 'canton:omnibus', mark: 'CN', value: addrs['canton:omnibus'] },
+    addrs['eip155:1'] && { label: 'EVM', caip: 'eip155:1', mark: 'EVM', value: addrs['eip155:1'] },
+  ].filter(Boolean);
+  const links = nameLinks(page.texts);
+  const avatar = (page.texts && page.texts.avatar) || '';
+  const avatarOk = /^(\/[^\s]+|https?:\/\/\S+)$/i.test(avatar);
+  const rec = page.receptionist;
+  const activeMods = page.modes || []; // all active mods, stacked under each other (primary first)
+
+  const Eyebrow = ({ children, color }) => (
+    <div style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.12em', color: color || PUB.muted }}>{children}</div>
+  );
+
+  return (
+    <div style={{ maxWidth: 980, margin: '0 auto', padding: '22px 24px 70px', fontFamily: PUB.sans, color: PUB.ink, lineHeight: 1.4 }}>
+      <style>{'@media(max-width:760px){.pub-hero{grid-template-columns:1fr !important}.pub-req{grid-template-columns:1fr !important}.pub-mini{grid-template-columns:1fr !important}.pub-appt{grid-template-columns:auto 1fr !important}}'}</style>
+      <button onClick={back} style={pubBackBtn()}>← Back</button>
+
+      <div style={{ borderRadius: 26, overflow: 'hidden', boxShadow: '0 1px 3px rgba(22,19,13,.10), 0 26px 60px rgba(22,19,13,.16)' }}>
+
+        {/* HERO */}
+        <section className="pub-hero" style={{ background: PUB.black, color: PUB.cream, padding: 44, display: 'grid',
+          gridTemplateColumns: avatarOk ? '1.3fr .7fr' : '1fr', gap: 38, alignItems: 'center' }}>
+          <div>
+            <div style={{ fontFamily: PUB.mono, fontSize: 16, textTransform: 'uppercase', letterSpacing: '.12em', color: PUB.sand }}>{display}</div>
+            <h1 style={{ fontSize: 'clamp(44px,7vw,76px)', letterSpacing: '-.05em', lineHeight: .86, fontWeight: 800, margin: '16px 0 0' }}>
+              {ownerName}<span style={{ color: PUB.red }}>.</span>
+            </h1>
+            {prof.headline && <div style={{ fontSize: 18, color: '#ece3d4', marginTop: 18, maxWidth: 460 }}>{prof.headline}</div>}
+            {prof.bio && <p style={{ fontSize: 15, color: '#cfc6b6', marginTop: 10, maxWidth: 460, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{prof.bio}</p>}
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', marginTop: 22 }}>
+              {rec && rec.active !== 0 && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: PUB.red, color: '#fff',
+                  fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em', borderRadius: 999, padding: '9px 14px' }}>● Receptionist on duty</span>
+              )}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#d8cfbf', fontFamily: PUB.mono,
+                fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#7fe0a3' }} />Pairpoint-verified
+              </span>
+            </div>
+
+            {links.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 24 }}>
+                {links.map(l => (
+                  l.href
+                    ? <a key={l.key} href={l.href} target="_blank" rel="noopener noreferrer nofollow" style={pubPill()}>{l.label} ↗</a>
+                    : <span key={l.key} style={pubPill()}>{l.label}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {avatarOk && (
+            <div style={{ position: 'relative' }}>
+              <img src={avatar} alt={ownerName} style={{ display: 'block', width: '100%', aspectRatio: '4 / 5',
+                objectFit: 'cover', borderRadius: 20, border: '1px solid rgba(255,255,255,.14)' }} />
+            </div>
+          )}
+        </section>
+
+        {/* MODS — every active mod stacked under each other (no tab switcher). */}
+        {activeMods.map((m, i) => (
+          <section key={m.key} style={{ background: PUB.paper, padding: '30px 44px',
+            borderTop: i === 0 ? '8px solid ' + PUB.red : '1px solid ' + PUB.hair }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
+              <h2 style={{ fontSize: 32, letterSpacing: '-.045em', lineHeight: 1, fontWeight: 800, maxWidth: 560 }}>{m.title}</h2>
+              <span style={pubModeStatus(m.closed)}>{m.status}</span>
+            </div>
+            {m.copy && <p style={{ fontSize: 15.5, color: '#2b2b2b', marginTop: 13, maxWidth: 680, lineHeight: 1.5 }}>{m.copy}</p>}
+            <PubBlockBody m={m} />
+            {m.cta && (
+              <div style={{ marginTop: 18 }}>
+                <button onClick={() => reqRef.current && reqRef.current.scrollIntoView({ behavior: 'smooth' })} style={pubCta()}>{m.cta} →</button>
+              </div>
+            )}
+          </section>
+        ))}
+
+        {/* ON-CHAIN ADDRESSES */}
+        {addrRows.length > 0 && (
+          <section style={{ background: PUB.paper, padding: '34px 44px', borderTop: activeMods.length ? '1px solid ' + PUB.hair : 'none' }}>
+            <Eyebrow>On-chain addresses</Eyebrow>
+            <h2 style={{ fontSize: 32, letterSpacing: '-.04em', lineHeight: 1, fontWeight: 700, margin: '8px 0 0' }}>Send to {firstName}</h2>
+            <div style={{ marginTop: 16 }}>
+              {addrRows.map(a => <AddrRow key={a.caip} a={a} />)}
+              <div style={{ borderTop: '1px solid ' + PUB.hair }} />
+            </div>
+          </section>
+        )}
+
+        {/* ROUTE A REQUEST — the receptionist */}
+        <section ref={reqRef} style={{ background: PUB.black, color: PUB.cream, padding: 44 }}>
+          <div className="pub-req" style={{ display: 'grid', gridTemplateColumns: '.85fr 1.15fr', gap: 30, alignItems: 'start' }}>
+            <div>
+              <Eyebrow color={PUB.sand}>Route a request</Eyebrow>
+              <h2 style={{ fontSize: 30, letterSpacing: '-.04em', lineHeight: 1.05, fontWeight: 700, margin: '12px 0 0' }}>
+                What do you want to reach {firstName} about?
+              </h2>
+              <p style={{ color: '#d8cfbf', fontSize: 14.5, marginTop: 14, lineHeight: 1.5 }}>
+                Leave a message with {firstName}'s receptionist. It's screened for relevance and summarised
+                before it reaches {firstName} — generic outreach is filtered.
+              </p>
+            </div>
+            <div>
+              {rec
+                ? <VisitorChat key={name} name={name} receptionist={rec} />
+                : <div style={{ border: '1px solid rgba(255,255,255,.14)', borderRadius: 14, padding: 24, color: '#afa79a',
+                    fontFamily: PUB.mono, fontSize: 12, textTransform: 'uppercase', letterSpacing: '.06em' }}>No receptionist on duty.</div>}
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <footer style={{ marginTop: 22, padding: '0 4px', display: 'flex', justifyContent: 'space-between', gap: 16,
+        flexWrap: 'wrap', color: PUB.muted, fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+        <div>{display} · public-facing profile</div>
+        <div>Powered by DIAL</div>
+      </footer>
+    </div>
+  );
+}
+
+function AddrRow({ a }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = () => { try { navigator.clipboard?.writeText(a.value); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch {} };
+  const short = a.value.length > 32 ? a.value.slice(0, 16) + '…' + a.value.slice(-12) : a.value;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '16px 0', borderTop: '1px solid ' + PUB.hair }}>
+      <span style={{ fontFamily: PUB.mono, fontSize: 14, fontWeight: 700, letterSpacing: '.02em', minWidth: 52, color: PUB.ink }}>{a.mark}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <b style={{ fontWeight: 700, fontSize: 16 }}>{a.label}</b>
+        <span style={{ display: 'block', fontFamily: PUB.mono, fontSize: 12, color: PUB.muted, marginTop: 3, wordBreak: 'break-all' }}>{short}</span>
+      </span>
+      <button onClick={copy} style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em',
+        border: '1px solid ' + PUB.hair, borderRadius: 999, padding: '7px 13px', whiteSpace: 'nowrap', background: PUB.card, color: PUB.ink, cursor: 'pointer' }}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
+function VisitorChat({ name, receptionist }) {
+  const [convId, setConvId] = React.useState(null);
+  const [token, setToken] = React.useState(null);
+  const [messages, setMessages] = React.useState(() => [{ role: 'assistant', content: receptionist.greeting }]);
+  const [input, setInput] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [completed, setCompleted] = React.useState(false);
+  const scrollRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, sending]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || sending || completed) return;
+    setMessages(m => [...m, { role: 'user', content: text }]);
+    setInput(''); setSending(true);
+    try {
+      const res = await sendVisitorMessage(name, convId, token, text);
+      setConvId(res.conversation_id); setToken(res.session_token);
+      setMessages(m => [...m, { role: 'assistant', content: res.reply }]);
+      if (res.completed) setCompleted(true);
+    } catch (e) {
+      setMessages(m => [...m, { role: 'assistant', content: 'Sorry — something went wrong. Please try again.' }]);
+    } finally { setSending(false); }
+  };
+
+  const hairW = '1px solid rgba(255,255,255,.12)';
+  return (
+    <div style={{ border: '1px solid rgba(255,255,255,.14)', borderRadius: 16, overflow: 'hidden', background: '#191817' }}>
+      <div style={{ padding: '12px 16px', borderBottom: hairW, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ width: 8, height: 8, borderRadius: 999, background: '#7fe0a3' }} />
+        <strong style={{ fontSize: 13, color: PUB.cream }}>{receptionist.receptionist_name}</strong>
+        <span style={{ fontSize: 11, color: '#afa79a' }}>· for {receptionist.owner_name}</span>
+      </div>
+
+      <div ref={scrollRef} style={{ maxHeight: 300, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+            <div style={{ maxWidth: '80%', padding: '9px 13px', borderRadius: 12, fontSize: 13, lineHeight: 1.45,
+              background: m.role === 'user' ? PUB.red : '#262422',
+              color: m.role === 'user' ? '#fff' : '#ece3d4' }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {sending && (
+          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <div style={{ padding: '9px 13px', borderRadius: 12, background: '#262422', color: '#afa79a', fontSize: 13 }}>typing…</div>
+          </div>
+        )}
+      </div>
+
+      {completed ? (
+        <div style={{ padding: 14, borderTop: hairW, background: '#13110f' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#7fe0a3' }}>✓ Message sent</div>
+          <div style={{ fontSize: 12, color: '#afa79a', marginTop: 2 }}>Summarised and forwarded to {receptionist.owner_name}.</div>
+        </div>
+      ) : (
+        <div style={{ padding: 12, borderTop: hairW, display: 'flex', gap: 8 }}>
+          <input value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+            placeholder="Type a message…" disabled={sending}
+            style={{ flex: 1, background: '#0f0e0d', border: '1px solid rgba(255,255,255,.16)', color: PUB.cream,
+              padding: '10px 12px', borderRadius: 10, fontSize: 13, outline: 'none' }} />
+          <button onClick={send} disabled={sending || !input.trim()}
+            style={{ background: PUB.red, color: '#fff', border: 0, borderRadius: 10, padding: '0 16px', fontFamily: PUB.mono,
+              fontSize: 12, textTransform: 'uppercase', letterSpacing: '.04em', cursor: 'pointer', opacity: (sending || !input.trim()) ? .5 : 1 }}>Send</button>
+        </div>
+      )}
+      <div style={{ fontSize: 10, padding: '0 14px 12px', color: '#8b8377', fontFamily: PUB.mono, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+        AI receptionist · collects messages, doesn't speak for {receptionist.owner_name}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Owner inbox (retail) — message summaries from the receptionist.
+// ─────────────────────────────────────────────────────────────
+function ScreenInbox() {
+  const { state, dispatch } = useDial();
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadInbox(state.org).then(d => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setData({ items: [] }); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [state.org]);
+
+  return (
+    <div className="dial-section">
+      <div style={{ marginBottom: 22 }}>
+        <span className="dial-eyebrow">Receptionist</span>
+        <h1 className="dial-h2" style={{ fontSize: 26 }}>Inbox</h1>
+        <div className="dial-muted" style={{ fontSize: 13 }}>Message summaries your receptionist forwarded to you.</div>
+      </div>
+
+      {loading ? <div className="dial-muted">Loading…</div>
+        : (!data || data.items.length === 0) ? (
+          <div className="dial-card" style={{ padding: 32, textAlign: 'center' }}>
+            <div className="dial-h3">No messages yet</div>
+            <div className="dial-muted" style={{ fontSize: 13 }}>When a visitor messages your receptionist, the summary lands here.</div>
+          </div>
+        ) : (
+          <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+            {data.items.map((it, i) => (
+              <button key={it.id} className="dial-card" onClick={() => dispatch({ type: 'route', route: { screen: 'conversation', inboxId: it.id } })}
+                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, textAlign: 'left', width: '100%',
+                  border: 0, borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)', background: 'transparent', cursor: 'pointer', borderRadius: 0 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 999, flexShrink: 0, background: it.is_read ? 'var(--dial-border)' : 'var(--dial-accent)' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: it.is_read ? 500 : 700 }}>{it.visitor_name || 'Anonymous visitor'}
+                    <span className="dial-mono dial-muted" style={{ fontSize: 11, marginLeft: 8 }}>{it.name}</span>
+                  </div>
+                  <div className="dial-muted" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.topic || it.subject}</div>
+                </div>
+                <span className="dial-muted" style={{ fontSize: 11, fontFamily: 'var(--dial-font-mono)', flexShrink: 0 }}>{fmtDate(it.created_at)}</span>
+                <Chevron size={16} stroke="var(--dial-muted)" />
+              </button>
+            ))}
+          </div>
+        )}
+    </div>
+  );
+}
+
+function ScreenConversation() {
+  const { state, dispatch } = useDial();
+  const id = state.route.inboxId;
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadInboxItem(state.org, id).then(d => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setData(null); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [id, state.org]);
+
+  if (loading) return <div className="dial-section"><div className="dial-muted">Loading…</div></div>;
+  if (!data) return (
+    <div className="dial-section">
+      <button className="dial-btn ghost sm" onClick={() => dispatch({ type: 'route', route: { screen: 'inbox' } })}>← Inbox</button>
+      <div className="dial-card" style={{ padding: 24, marginTop: 16 }}>Not found.</div>
+    </div>
+  );
+
+  const conv = data.conversation || {};
+  const item = data.item || {};
+  // Pull the summary block (everything before "Original conversation:") for display.
+  const summaryBlock = (item.body || '').split('Original conversation:')[0].trim();
+
+  return (
+    <div className="dial-section" style={{ maxWidth: 760 }}>
+      <button className="dial-btn ghost sm" onClick={() => dispatch({ type: 'route', route: { screen: 'inbox' } })} style={{ marginBottom: 16 }}>← Inbox</button>
+
+      <div className="dial-card" style={{ padding: 18, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+          <div className="dial-h3" style={{ margin: 0 }}>{conv.visitor_name || 'Anonymous visitor'}</div>
+          <span className="dial-mono dial-muted" style={{ fontSize: 12 }}>{item.name}</span>
+        </div>
+        <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: 1.5, color: 'var(--dial-text-2)' }}>{summaryBlock}</pre>
+      </div>
+
+      <h3 className="dial-h3">Transcript</h3>
+      <div className="dial-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {(data.messages || []).map((m, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'visitor' ? 'flex-end' : 'flex-start' }}>
+            <div style={{ maxWidth: '80%', padding: '8px 12px', borderRadius: 'var(--dial-radius)', fontSize: 13, lineHeight: 1.45,
+              background: m.role === 'visitor' ? 'var(--dial-text)' : 'var(--dial-surface)',
+              color: m.role === 'visitor' ? 'var(--dial-bg)' : 'var(--dial-text)',
+              border: m.role === 'visitor' ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 window.DialTopBar         = DialTopBar;
 window.ScreenHome         = ScreenHome;
 window.ScreenDashboard    = ScreenDashboard;
 window.ScreenNameDetail   = ScreenNameDetail;
 window.ScreenDomainDetail = ScreenDomainDetail;
 window.ScreenCart         = ScreenCart;
+window.ScreenPublic       = ScreenPublic;
+window.ScreenInbox        = ScreenInbox;
+window.ScreenConversation = ScreenConversation;

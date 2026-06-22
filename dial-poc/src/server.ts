@@ -12,6 +12,8 @@ import * as registrar from './services/registrar.ts';
 import * as chainSync from './services/chain-sync.ts';
 import * as domainsSvc from './services/domains.ts';
 import * as canton from './services/canton.ts';
+import * as receptionist from './services/receptionist.ts';
+import * as modes from './services/modes.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -22,11 +24,79 @@ chainSync.start();
 function seedIfEmpty() {
   if (registry.listAll().length > 0 || domainsSvc.listAll().length > 0) return;
 
-  // Alice — consumer with a .dial name. EVM binding out of scope (PoC).
+  // David — consumer with a .dial name, a receptionist, a mocked EVM address,
+  // and several messages already waiting in his inbox. (Account address kept
+  // as the opaque internal id 0xalice123.)
   {
     const att = idh.verify('0xalice123', 'consumer');
-    registrar.register({ name: 'alice.dial', owner_address: '0xalice123', duration_years: 1, attestation_hash: att.hash });
-    resolver.setAddr('0xalice123', 'alice.dial', 'canton:omnibus', canton.partyFor('alice.dial'));
+    registrar.register({ name: 'david.dial', owner_address: '0xalice123', duration_years: 1, attestation_hash: att.hash });
+    resolver.setAddr('0xalice123', 'david.dial', 'canton:omnibus', canton.partyFor('david.dial'));
+    // Mocked EVM address (proof-of-control is mocked) so the address page
+    // shows Canton + EVM out of the box.
+    resolver.setAddr('0xalice123', 'david.dial', 'eip155:1', '0xA1c3553aF1cE0000000000000000000000A11ce5');
+
+    receptionist.upsertConfig('0xalice123', 'david.dial', {
+      owner_name: 'David Palmer',
+      receptionist_name: "David's Receptionist",
+      headline: 'Designer · non-custodial identity',
+      bio: 'David builds non-custodial identity tools on DIAL. Leave a message and his receptionist will pass along a clean summary.',
+      greeting: "Hi, I'm David's receptionist. I can take a message and forward a summary to David.",
+      forwarding_email: 'david.palmer@proton.me',
+      active: 1,
+    });
+
+    // A few social links so the public "address page" reads like a Linktree.
+    resolver.setText('0xalice123', 'david.dial', 'x', '@davidpalmer');
+    resolver.setText('0xalice123', 'david.dial', 'telegram', '@davidpalmer');
+    resolver.setText('0xalice123', 'david.dial', 'linkedin', 'in/davidpalmer');
+    resolver.setText('0xalice123', 'david.dial', 'url', 'davidpalmer.example');
+    // Portrait for the public profile hero (served from /public).
+    resolver.setText('0xalice123', 'david.dial', 'avatar', '/david-palmer.png');
+    // Profile composition — availability modes (partnership primary, hiring)
+    // plus content modules (conferences/appearances, latest signals).
+    modes.setActiveSet('0xalice123', 'david.dial', ['conference', 'partnership', 'hiring', 'signals'], 'partnership');
+
+    // Drive several full conversations through the engine so the inbox is full.
+    const runConvo = (messages: string[]) => {
+      let cv: { conversation_id: string; session_token: string } | null = null;
+      for (const msg of messages) {
+        const out = receptionist.startOrContinue({
+          name: 'david.dial',
+          conversation_id: cv?.conversation_id ?? null,
+          session_token: cv?.session_token ?? null,
+          message: msg,
+        });
+        cv = { conversation_id: out.conversation_id, session_token: out.session_token };
+      }
+    };
+    runConvo([
+      "Hi, I'd like to reach David about a possible collaboration.",
+      "I'm James Okoro from ADB.",
+      'james.okoro@adb.example',
+      'A tokenized insurance pilot we want to explore with him.',
+      'A short intro call next week would be ideal.',
+    ]);
+    runConvo([
+      "Hello — I need to reach David and it's fairly urgent.",
+      'My name is Maria Chen, I work at Lattice Labs.',
+      'maria@latticelabs.example',
+      "We'd love him to review our wallet design system before launch.",
+      'Could he share feedback or hop on a quick call this week?',
+    ]);
+    runConvo([
+      'Hi there, quick one for David.',
+      'This is Tomas Berg.',
+      'you can reach me at tomas.berg@devconnect.example',
+      "I'm organising DevConnect and would love David to give a talk.",
+      'Just need to know if he is open to it — a reply by email is fine.',
+    ]);
+    runConvo([
+      'Hey, is David around for a short chat?',
+      "I'm Priya Nair from Helix.",
+      'priya@helix.example',
+      'Exploring a partnership on self-custody identity tooling.',
+      'A 20-minute call would be great.',
+    ]);
   }
 
   // Acme — enterprise with a corporate .acme domain plus 4 issued names.
@@ -42,7 +112,7 @@ function seedIfEmpty() {
       resolver.setAddr('0xacme456', name, 'canton:omnibus', canton.partyFor(name));
     }
   }
-  console.log('[seed] inserted alice.dial + .acme corporate domain (4 names) with Canton ns=' + canton.fingerprint().slice(0, 12) + '…');
+  console.log('[seed] inserted david.dial + .acme corporate domain (4 names) with Canton ns=' + canton.fingerprint().slice(0, 12) + '…');
 }
 seedIfEmpty();
 
@@ -184,7 +254,7 @@ app.get('/v1/canton/namespace', (_req, res) => {
     fingerprint: canton.fingerprint(),
     multihash_prefix: '1220',
     digest_algorithm: 'sha-256',
-    example: canton.partyFor('alice.dial'),
+    example: canton.partyFor('david.dial'),
     note: 'Canton party id = <hint>::<namespace>. DIAL names use the DIAL-namespace fingerprint as the namespace; the hint is the DIAL name.',
   });
 });
@@ -288,7 +358,7 @@ app.post('/v1/domains/:label/addr/:chain', (req, res) => {
     res.json(rec);
   } catch (e) {
     const msg = (e as Error).message;
-    res.status(msg === 'not owner' ? 403 : 400).json({ error: msg });
+    res.status(msg === 'not owner' ? 403 : (msg === 'domain not found' ? 404 : 400)).json({ error: msg });
   }
 });
 
@@ -339,6 +409,7 @@ app.get('/v1/resolver/:name', (req, res) => {
     owner: ns.owner_address,
     expires_at: ns.expires_at,
     addresses: resolver.getAddresses(name),
+    texts: resolver.getTexts(name),        // social links + other text records
     attestation_hash: ns.attestation_hash, // §3.4 DIAL-signed attestation reference
   });
 });
@@ -351,26 +422,37 @@ app.post('/v1/resolver/:name/addr/:chain', (req, res) => {
   if (typeof value !== 'string' || !value.length) {
     return res.status(400).json({ error: 'value required' });
   }
+  const chain = req.params.chain.toLowerCase();
+  // §5.4 proof-of-control is mocked; we still validate the address shape so a
+  // bound EVM address is well-formed (0x + 40 hex). EIP-55 checksum optional.
+  if (chain.startsWith('eip155') && !/^0x[0-9a-fA-F]{40}$/.test(value.trim())) {
+    return res.status(400).json({ error: 'invalid EVM address — expected 0x followed by 40 hex characters' });
+  }
   try {
-    const rec = resolver.setAddr(c, req.params.name.toLowerCase(), req.params.chain.toLowerCase(), value);
+    const rec = resolver.setAddr(c, req.params.name.toLowerCase(), chain, value.trim());
     res.json(rec);
   } catch (e) {
     const msg = (e as Error).message;
-    res.status(msg === 'not owner' ? 403 : 400).json({ error: msg });
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
   }
 });
 
+// Set or clear a text record (empty value deletes it — used by social links).
 app.post('/v1/resolver/:name/text/:key', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
   const value = req.body?.value;
   if (typeof value !== 'string') return res.status(400).json({ error: 'value required' });
   try {
-    const rec = resolver.setText(c, req.params.name.toLowerCase(), req.params.key, value);
+    const name = req.params.name.toLowerCase();
+    const key = req.params.key;
+    const rec = value.trim() === ''
+      ? (resolver.removeText(c, name, key), { name, key, value: '', updated_at: Date.now() })
+      : resolver.setText(c, name, key, value.trim());
     res.json(rec);
   } catch (e) {
     const msg = (e as Error).message;
-    res.status(msg === 'not owner' ? 403 : 400).json({ error: msg });
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
   }
 });
 
@@ -414,6 +496,152 @@ app.get('/v1/chains/:chain/:name', (req, res) => {
   const row = chainSync.latest(chain, req.params.name.toLowerCase());
   if (!row) return res.status(404).json({ error: 'not on chain yet' });
   res.json(row);
+});
+
+// =====================================================
+// Receptionist (retail) — public page, visitor chat, owner inbox
+// Ported from adihus/dial. Scripted intake (no external LLM); summaries
+// land in the owner inbox (mocked email forwarding).
+// =====================================================
+
+// Public address page — no auth. Profile + chain addresses + receptionist +
+// active profile modes.
+app.get('/v1/public/:name', (req, res) => {
+  const name = req.params.name.toLowerCase();
+  const page = receptionist.publicPage(name);
+  if (!page) return res.status(404).json({ error: 'not found' });
+  res.json({ ...page, modes: modes.publicModes(name) });
+});
+
+// Owner: full mode catalog with on/off + primary state.
+app.get('/v1/profile/:name/modes', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    res.json({ modes: modes.ownerModes(c, req.params.name.toLowerCase()) });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner: toggle one mode (active / primary).
+app.put('/v1/profile/:name/modes/:key', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    const updated = modes.setMode(c, req.params.name.toLowerCase(), req.params.key, {
+      active: typeof req.body?.active === 'boolean' ? req.body.active : undefined,
+      primary: req.body?.primary === true,
+    });
+    res.json({ modes: updated });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner: talk to the mode agent in natural language.
+app.post('/v1/profile/:name/modes/agent', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const message = req.body?.message;
+  if (typeof message !== 'string') return res.status(400).json({ error: 'message required' });
+  try {
+    res.json(modes.agent(c, req.params.name.toLowerCase(), message));
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Public visitor chat — no auth. Light per-IP / per-name rate limiting +
+// 2000-char cap + session-token binding (deploy-blocking in the source PoC).
+const MAX_MSG = 2000;
+const ipHits = new Map<string, { n: number; t: number }>();
+const nameHits = new Map<string, { n: number; t: number }>();
+function rateLimited(map: Map<string, { n: number; t: number }>, key: string, limit: number): boolean {
+  const now = Date.now();
+  const w = map.get(key);
+  if (!w || now - w.t > 60_000) { map.set(key, { n: 1, t: now }); return false; }
+  w.n += 1;
+  return w.n > limit;
+}
+// Evict stale windows so the limiter maps can't grow unbounded.
+setInterval(() => {
+  const cutoff = Date.now() - 120_000;
+  for (const m of [ipHits, nameHits]) for (const [k, v] of m) if (v.t < cutoff) m.delete(k);
+}, 120_000).unref?.();
+
+app.post('/v1/public/message', (req, res) => {
+  const { name, conversation_id, session_token, message } = req.body ?? {};
+  if (!name || typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'name and message required' });
+  }
+  if (message.length > MAX_MSG) {
+    return res.status(400).json({ error: `message too long (max ${MAX_MSG} chars)` });
+  }
+  // Key on the socket IP only — never the client-supplied X-Forwarded-For
+  // header (spoofable). Behind a real proxy you'd set `trust proxy` and use
+  // req.ip; this PoC runs without one. Per-name is a high soft backstop so a
+  // single noisy visitor can't lock everyone else out of a receptionist.
+  const ip = req.ip || 'unknown';
+  if (rateLimited(ipHits, ip, 20))                            return res.status(429).json({ error: 'Too many messages — slow down a moment.' });
+  if (rateLimited(nameHits, String(name).toLowerCase(), 1000)) return res.status(429).json({ error: 'This receptionist is busy — try again shortly.' });
+  try {
+    const out = receptionist.startOrContinue({
+      name: String(name).toLowerCase(),
+      conversation_id: conversation_id ?? null,
+      session_token: session_token ?? null,
+      message: message.trim(),
+    });
+    res.json(out);
+  } catch (e) {
+    const code = (e as any).code === 403 ? 403 : ((e as Error).message === 'receptionist not found' ? 404 : 400);
+    res.status(code).json({ error: (e as Error).message });
+  }
+});
+
+// Owner — receptionist config (get / upsert), owner-checked.
+app.get('/v1/receptionist/:name', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const name = req.params.name.toLowerCase();
+  const owner = registry.ownerOf(name);
+  if (!owner) return res.status(404).json({ error: 'not found' });
+  if (owner.toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
+  res.json(receptionist.getConfig(name));
+});
+
+app.put('/v1/receptionist/:name', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    const cfg = receptionist.upsertConfig(c, req.params.name.toLowerCase(), req.body ?? {});
+    res.json(cfg);
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner — inbox list + item detail.
+app.get('/v1/inbox', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  res.json({ items: receptionist.listInbox(c), unread: receptionist.unreadCount(c) });
+});
+
+app.get('/v1/inbox/:id', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    const detail = receptionist.getInboxItem(c, req.params.id);
+    if (!detail) return res.status(404).json({ error: 'not found' });
+    res.json(detail);
+  } catch (e) {
+    res.status((e as Error).message === 'not owner' ? 403 : 400).json({ error: (e as Error).message });
+  }
 });
 
 // =====================================================

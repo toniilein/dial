@@ -38,7 +38,7 @@ Set `PORT` to use a different port; `DIAL_DB` to relocate the SQLite file;
 
 It's a single Node web service — it serves both the JSON API and the static
 UI on one port, stores state in SQLite, and **re-seeds demo data
-(`alice.dial`, the `.acme` corporate domain, etc.) on every boot**. The
+(`david.dial`, the `.acme` corporate domain, etc.) on every boot**. The
 SQLite files are git-ignored and ephemeral, so a fresh deploy always starts
 from the seed — no database to provision. The server reads `PORT` from the
 environment and binds all interfaces, so it drops straight into any host.
@@ -91,7 +91,7 @@ the build/start fields entirely.
 
 ## What the DIAL App does
 
-1. **Find a name** — `alice.dial` → checks validity / reserved-list /
+1. **Find a name** — `david.dial` → checks validity / reserved-list /
    availability and returns a pricing quote (sub-300ms target per §NFR).
 2. **Register** — Verify identity (mock IDH) → Pay (mock USDC) → Registry row
    written.
@@ -120,9 +120,39 @@ the build/start fields entirely.
 | GET    | `/v1/billing/quote?name=…&duration_years=…`       | 7.2      |
 | GET    | `/v1/chains/canton`, `/v1/chains/evm`             | 5.3, 5.5 |
 | GET    | `/v1/chains/:chain/:name`                         | 5.3      |
+| GET    | `/v1/public/:name`                                | retail   |
+| POST   | `/v1/public/message`                              | retail   |
+| GET/PUT| `/v1/receptionist/:name`                          | retail   |
+| GET    | `/v1/inbox`, `/v1/inbox/:id`                      | retail   |
 
-Mutating routes (`POST`) require an `X-Owner-Address` header — the PoC stand-in
-for §4.3 API auth + the Pairpoint AA-signed user op a real client would attach.
+Mutating routes (`POST`/`PUT`) require an `X-Owner-Address` header — the PoC
+stand-in for §4.3 API auth + the Pairpoint AA-signed user op a real client
+would attach. The two `/v1/public/*` routes are unauthenticated (visitor-facing)
+and instead rely on per-IP/per-name rate limiting + session-token binding.
+
+## Receptionist, address page & EVM (retail)
+
+Ported in spirit from a colleague's **DIAL Receptionist** PoC (`adihus/dial`),
+adapted to this stack and kept self-contained (no external AI / email):
+
+- **Receptionist** — a constrained intake agent attached to a consumer's name
+  (David / Alice). The owner configures it (name, bio, greeting, forwarding
+  email) under the name's **Receptionist** tab. Visitors chat with it on the
+  public page; it collects name → contact → topic → next-step, then summarises
+  and delivers to the owner's **Inbox**. The engine is a deterministic
+  slot-filling script (no OpenAI key) with the source PoC's statuses, summary
+  template, idempotent/self-healing finalize, session-token binding, and
+  per-IP/per-name rate limits.
+- **Your address page** — a public page at `/v1/public/:name` (in the app:
+  the name's **View page** button) showing the profile, **Linktree-style
+  social links** (phone, WhatsApp, Telegram, X, LinkedIn, Instagram, GitHub,
+  website, email), the name's chain addresses (Canton + EVM, with copy), and
+  the receptionist chat. Links are managed under the name's **Links** tab and
+  stored as resolver text records; rendered hrefs are scheme-gated
+  (https/tel/mailto only).
+- **Add EVM address** — bind an `eip155:1` address to a name from the **Chain
+  records** tab, validated as `0x` + 40 hex on both client and server
+  (proof-of-control mocked). It then appears on the public address page.
 
 ## Layout
 
@@ -155,17 +185,17 @@ HASH=$(echo "$ATT" | jq -r .hash)
 curl -s -X POST localhost:3000/v1/registrar/register \
   -H 'content-type: application/json' \
   -H 'x-owner-address: 0xabc123' \
-  -d "{\"name\":\"alice.dial\",\"duration_years\":1,\"attestation_hash\":\"$HASH\"}"
+  -d "{\"name\":\"myname.dial\",\"duration_years\":1,\"attestation_hash\":\"$HASH\"}"
 
 # 3. bind an EVM address
-curl -s -X POST localhost:3000/v1/resolver/alice.dial/addr/evm \
+curl -s -X POST localhost:3000/v1/resolver/myname.dial/addr/evm \
   -H 'content-type: application/json' \
   -H 'x-owner-address: 0xabc123' \
   -d '{"value":"0x9aB1C00D5A0F12345678901234567890DEAD"}'
 
 # 4. public lookup
-curl -s localhost:3000/v1/resolver/alice.dial
+curl -s localhost:3000/v1/resolver/myname.dial
 
 # 5. see what Chain Sync wrote
-curl -s localhost:3000/v1/chains/canton/alice.dial
+curl -s localhost:3000/v1/chains/canton/myname.dial
 ```

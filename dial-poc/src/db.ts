@@ -82,4 +82,78 @@ db.exec(`
     PRIMARY KEY (label, key),
     FOREIGN KEY (label) REFERENCES domains(label) ON DELETE CASCADE
   );
+
+  -- ── Receptionist (retail) — ported from adihus/dial ──────────────────
+  -- An AI-style intake agent + lightweight public profile, 1:1 with a name.
+  -- The public "address page" at /<name> renders this profile, the name's
+  -- chain addresses, and (when active) a visitor chat with the receptionist.
+  CREATE TABLE IF NOT EXISTS receptionists (
+    name              TEXT PRIMARY KEY,
+    owner_address     TEXT NOT NULL,
+    owner_name        TEXT NOT NULL,
+    receptionist_name TEXT NOT NULL,
+    headline          TEXT NOT NULL DEFAULT '',
+    bio               TEXT NOT NULL DEFAULT '',
+    greeting          TEXT NOT NULL DEFAULT '',
+    forwarding_email  TEXT NOT NULL DEFAULT '',
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        INTEGER NOT NULL,
+    updated_at        INTEGER NOT NULL,
+    FOREIGN KEY (name) REFERENCES namespaces(name) ON DELETE CASCADE
+  );
+
+  -- One visitor session with a receptionist. Status mirrors the source PoC:
+  -- open → collecting_info → ready_for_summary → summarized → delivered.
+  CREATE TABLE IF NOT EXISTS conversations (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,         -- the dial name being visited
+    session_token   TEXT NOT NULL,         -- server-issued; binds continuation
+    visitor_name    TEXT,
+    visitor_contact TEXT,
+    visitor_org     TEXT,
+    topic           TEXT,
+    urgency         TEXT,
+    next_step       TEXT,
+    status          TEXT NOT NULL DEFAULT 'open',
+    summary         TEXT,
+    asking          TEXT,                  -- which field we last asked for
+    delivered_at    INTEGER,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS conversations_by_name ON conversations(name);
+
+  CREATE TABLE IF NOT EXISTS messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    role            TEXT NOT NULL,         -- 'visitor' | 'receptionist'
+    content         TEXT NOT NULL,
+    created_at      INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS messages_by_conv ON messages(conversation_id);
+
+  -- Owner inbox — the mocked "email forwarding". Each summarized conversation
+  -- drops a row here for the name's owner to read.
+  CREATE TABLE IF NOT EXISTS inbox (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    owner_address   TEXT NOT NULL,
+    conversation_id TEXT NOT NULL UNIQUE,   -- one inbox row per conversation
+    subject         TEXT NOT NULL,
+    body            TEXT NOT NULL,
+    is_read         INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS inbox_by_owner ON inbox(owner_address);
+
+  -- Modular profile modes — the owner flips on "modes" (conference / hiring /
+  -- partnership / closed …) that the public profile renders. One JSON doc per
+  -- name: { active: {key:bool}, primary: key, overrides: {key:{...}} }.
+  CREATE TABLE IF NOT EXISTS profile_modes (
+    name       TEXT PRIMARY KEY,
+    doc        TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (name) REFERENCES namespaces(name) ON DELETE CASCADE
+  );
 `);

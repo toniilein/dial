@@ -31,7 +31,7 @@ function DialApp() {
   // Routes that require an authenticated user. Falls back to home if hit
   // while logged out (e.g. after logout while on dashboard). Cart is open
   // to anyone — you fill the basket first and sign in at checkout.
-  const isProtected = ['dashboard', 'name', 'domain'].includes(state.route.screen);
+  const isProtected = ['dashboard', 'name', 'domain', 'inbox', 'conversation'].includes(state.route.screen);
   const showHome = state.route.screen === 'home' || (isProtected && !state.loggedIn);
 
   return (
@@ -40,10 +40,13 @@ function DialApp() {
         <DialTopBar />
         <div className="dial-body">
           {showHome && <ScreenHome />}
-          {state.route.screen === 'dashboard' && state.loggedIn && <ScreenDashboard />}
-          {state.route.screen === 'name'      && state.loggedIn && <ScreenNameDetail />}
-          {state.route.screen === 'domain'    && state.loggedIn && <ScreenDomainDetail />}
-          {state.route.screen === 'cart'      && <ScreenCart />}
+          {state.route.screen === 'dashboard'    && state.loggedIn && <ScreenDashboard />}
+          {state.route.screen === 'name'         && state.loggedIn && <ScreenNameDetail />}
+          {state.route.screen === 'domain'       && state.loggedIn && <ScreenDomainDetail />}
+          {state.route.screen === 'inbox'        && state.loggedIn && <ScreenInbox />}
+          {state.route.screen === 'conversation' && state.loggedIn && <ScreenConversation />}
+          {state.route.screen === 'public'       && <ScreenPublic />}
+          {state.route.screen === 'cart'         && <ScreenCart />}
         </div>
         <DialModals />
         {state.toast && (

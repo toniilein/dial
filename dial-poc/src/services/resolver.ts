@@ -31,6 +31,16 @@ export function text(name: string, key: string): string | null {
   return row?.value ?? null;
 }
 
+// All text records as a key→value map (the `text.` prefix stripped). Used for
+// social links (phone / whatsapp / telegram / x / linkedin / …) and the
+// public address page.
+export function getTexts(name: string): Record<string, string> {
+  const rows = db.prepare(`SELECT key, value FROM resolver_records WHERE name = ? AND key LIKE 'text.%'`).all(name) as { key: string; value: string }[];
+  const out: Record<string, string> = {};
+  for (const r of rows) out[r.key.slice('text.'.length)] = r.value;
+  return out;
+}
+
 function upsert(name: string, key: string, value: string): ResolverRecord {
   const updated_at = Date.now();
   db.prepare(`
@@ -55,6 +65,14 @@ export function setText(caller: string, name: string, key: string, value: string
   if (!owner) throw new Error('namespace not found');
   if (owner.toLowerCase() !== caller.toLowerCase()) throw new Error('not owner');
   return upsert(name, `text.${key}`, value);
+}
+
+export function removeText(caller: string, name: string, key: string): void {
+  const owner = registry.ownerOf(name);
+  if (!owner) throw new Error('namespace not found');
+  if (owner.toLowerCase() !== caller.toLowerCase()) throw new Error('not owner');
+  db.prepare(`DELETE FROM resolver_records WHERE name = ? AND key = ?`).run(name, `text.${key}`);
+  bus.publish({ type: 'resolver.changed', name, key: `text.${key}`, value: '' });
 }
 
 // §3.3 Reverse resolution behind a privacy gate.

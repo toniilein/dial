@@ -700,8 +700,8 @@ function ConStepPersonal() {
   const id = state.identity[state.org];
   // Mocked baseline from the demo persona.
   const data = state.org === 'bob'
-    ? { full: 'Bob Schäfer',     dob: '1989-11-03', country: 'DE — Germany', email: 'bob.schaefer@vodafone.example', phone: '+49 170 ••••• 4231' }
-    : { full: id.name,           dob: '1992-04-12', country: 'DE — Germany', email: 'alice.mueller@proton.me',        phone: '+49 152 ••••• 9088' };
+    ? { full: 'Alice Schäfer',   dob: '1989-11-03', country: 'DE — Germany', email: 'alice.schaefer@vodafone.example', phone: '+49 170 ••••• 4231' }
+    : { full: id.name,           dob: '1992-04-12', country: 'DE — Germany', email: 'david.palmer@proton.me',          phone: '+49 152 ••••• 9088' };
   return (
     <div>
       <PairpointHeader />
@@ -1163,14 +1163,14 @@ function ReleaseModal() {
 // Sign-in modal — pick which account to log in as (3 demo personas).
 // ─────────────────────────────────────────────────────────────
 // Demo username → persona mapping. Any non-empty password accepted.
-const DEMO_USERS = { alice: 'personal', bob: 'bob', acme: 'acme' };
+const DEMO_USERS = { david: 'personal', alice: 'bob', acme: 'acme' };
 
 function LoginModal() {
   const { state, dispatch } = useDial();
   const [intent, setIntent] = React.useState(state.modal?.intent === 'register' ? 'register' : 'signin');
   const close = () => dispatch({ type: 'modal', modal: null });
 
-  // Social login mock — Apple → Alice (personal), Google → Bob.
+  // Social login mock — Apple → David (personal), Google → Alice.
   // (In production these would go through Pairpoint federated identity.)
   const socialLogin = (provider, org) => {
     dispatch({ type: 'login', org });
@@ -1293,7 +1293,7 @@ function SigninForm({ onSubmit }) {
         <div className="dial-field-label">Username</div>
         <div className="dial-input-wrap">
           <input value={username} onChange={e => setUsername(e.target.value)}
-            placeholder="alice, bob, or acme" autoFocus
+            placeholder="david, alice, or acme" autoFocus
             name="dial-signin-user" autoComplete="off"
             data-form-type="other" data-lpignore="true" data-1p-ignore />
         </div>
@@ -1341,7 +1341,7 @@ function RegisterForm({ onSubmit }) {
     if (password !== confirm)      { setError('Passwords do not match.');             return; }
     if (!terms)                    { setError('You must agree to the terms.');        return; }
     setError(null);
-    // Demo: registration signs you in as the fresh "Bob" persona AND wipes
+    // Demo: registration signs you in as the fresh "Alice" persona AND wipes
     // any leftover backend names/domains so the dashboard starts clean.
     onSubmit('bob', { fresh: true });
   };
@@ -1362,7 +1362,7 @@ function RegisterForm({ onSubmit }) {
         <div className="dial-field-label">Full name</div>
         <div className="dial-input-wrap">
           <input value={name} onChange={e => setName(e.target.value)}
-            placeholder="e.g. Bob Schäfer" autoFocus
+            placeholder="e.g. Alice Schäfer" autoFocus
             name="dial-reg-name" autoComplete="off"
             data-form-type="other" data-lpignore="true" data-1p-ignore />
         </div>
@@ -1415,7 +1415,7 @@ function RegisterForm({ onSubmit }) {
       </button>
 
       <div className="dial-muted" style={{ fontSize: 11, marginTop: 10, textAlign: 'center' }}>
-        Demo: this creates a Bob-style account — verify identity from the dashboard to unlock the {VERIFIED_DISCOUNT_PCT}% discount.
+        Demo: this creates an Alice-style account — verify identity from the dashboard to unlock the {VERIFIED_DISCOUNT_PCT}% discount.
       </div>
     </form>
   );

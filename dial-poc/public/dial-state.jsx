@@ -11,8 +11,8 @@ const CALLER_ADDRESSES = {
 
 const PERSONAS = {
   personal: {
-    name: 'Alice Müller', kind: 'consumer', initials: 'AM',
-    email: 'alice.mueller@proton.me',
+    name: 'David Palmer', kind: 'consumer', initials: 'DP',
+    email: 'david.palmer@proton.me',
     phone: '+49 152 ••••• 9088',
     address: { line1: '12 Karlstrasse', city: '80333 Munich', country: 'Germany' },
     fallbackLevel: 'Consumer · Verified',
@@ -26,8 +26,8 @@ const PERSONAS = {
     fallbackLevel: 'Enterprise · Tier-2',
   },
   bob: {
-    name: 'Bob Schäfer', kind: 'consumer', initials: 'BS',
-    email: 'bob.schaefer@vodafone.example',
+    name: 'Alice Schäfer', kind: 'consumer', initials: 'AS',
+    email: 'alice.schaefer@vodafone.example',
     phone: '+49 170 ••••• 4231',
     address: { line1: 'Friedrichshain 47', city: '10243 Berlin', country: 'Germany' },
     fallbackLevel: 'Consumer · Verified',
@@ -333,7 +333,7 @@ async function loadOrg(state, dispatch, org) {
       expires:    fmtDate(n.expires_at),
       expires_at: n.expires_at,
       records:    r.addresses || {},
-      text:       (prev && prev.text) || {},
+      text:       r.texts || (prev && prev.text) || {},
       attestation: r.attestation_hash,
       subnames:   (prev && prev.subnames) || [],
     };
@@ -518,6 +518,129 @@ async function releaseDomain(state, dispatch, domainStr) {
   dispatch({ type: 'toast', toast: { kind: 'ok', text: domainStr + ' released.' } });
 }
 
+// ──────────── Receptionist + address page + EVM (retail) ────────────
+
+// EVM address shape — 0x + 40 hex (proof-of-control mocked in the PoC).
+const EVM_RE = /^0x[0-9a-fA-F]{40}$/;
+function isEvmAddress(v) { return EVM_RE.test((v || '').trim()); }
+
+// Public address page (no auth) — profile + chain addresses + receptionist.
+async function loadPublic(name) {
+  return dialApi('GET', '/v1/public/' + encodeURIComponent(name));
+}
+
+// Visitor chat turn (no auth).
+async function sendVisitorMessage(name, conversationId, sessionToken, message) {
+  return dialApi('POST', '/v1/public/message', {
+    body: { name, conversation_id: conversationId || null, session_token: sessionToken || null, message },
+  });
+}
+
+// Owner receptionist config.
+async function loadReceptionist(org, name) {
+  return dialApi('GET', '/v1/receptionist/' + encodeURIComponent(name), { caller: CALLER_ADDRESSES[org] });
+}
+
+async function saveReceptionist(state, dispatch, name, fields) {
+  const caller = CALLER_ADDRESSES[state.org];
+  const cfg = await dialApi('PUT', '/v1/receptionist/' + encodeURIComponent(name), { caller, body: fields });
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Receptionist saved.' } });
+  return cfg;
+}
+
+// ──────────── Modular profile modes ────────────
+async function loadOwnerModes(org, name) {
+  return dialApi('GET', '/v1/profile/' + encodeURIComponent(name) + '/modes', { caller: CALLER_ADDRESSES[org] });
+}
+async function setModeActive(org, name, key, active) {
+  return dialApi('PUT', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key),
+    { caller: CALLER_ADDRESSES[org], body: { active } });
+}
+async function setModePrimary(org, name, key) {
+  return dialApi('PUT', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key),
+    { caller: CALLER_ADDRESSES[org], body: { primary: true } });
+}
+async function sendModeAgent(org, name, message) {
+  return dialApi('POST', '/v1/profile/' + encodeURIComponent(name) + '/modes/agent',
+    { caller: CALLER_ADDRESSES[org], body: { message } });
+}
+
+// Owner inbox.
+async function loadInbox(org) {
+  return dialApi('GET', '/v1/inbox', { caller: CALLER_ADDRESSES[org] });
+}
+async function loadInboxItem(org, id) {
+  return dialApi('GET', '/v1/inbox/' + encodeURIComponent(id), { caller: CALLER_ADDRESSES[org] });
+}
+
+// ──────────── Social links (Linktree-style, stored as text records) ────────────
+
+// Known platforms shown on the public address page. Each value is stored as a
+// resolver text record (key = the platform key). `href` turns the stored
+// handle/number/URL into a link; `clean` lightly normalises on save.
+const LINK_PLATFORMS = [
+  { key: 'phone',     label: 'Phone',     mark: '☎',  color: '#16a34a', placeholder: '+49 170 1234567',
+    href: v => 'tel:' + v.replace(/[^\d+]/g, ''), clean: v => v.trim() },
+  { key: 'whatsapp',  label: 'WhatsApp',  mark: 'WA', color: '#25D366', placeholder: '+49 170 1234567',
+    href: v => 'https://wa.me/' + v.replace(/[^\d]/g, ''), clean: v => v.trim() },
+  { key: 'telegram',  label: 'Telegram',  mark: 'TG', color: '#229ED9', placeholder: '@handle',
+    href: v => 'https://t.me/' + v.replace(/^@/, ''), clean: v => v.trim().replace(/^@/, '') },
+  { key: 'x',         label: 'X',         mark: '𝕏', color: '#111111', placeholder: '@handle',
+    href: v => 'https://x.com/' + v.replace(/^@/, ''), clean: v => v.trim().replace(/^@/, '') },
+  { key: 'linkedin',  label: 'LinkedIn',  mark: 'in', color: '#0A66C2', placeholder: 'in/username or full URL',
+    href: v => /^https?:\/\//i.test(v) ? v : 'https://linkedin.com/' + v.replace(/^\/+/, ''), clean: v => v.trim() },
+  { key: 'instagram', label: 'Instagram', mark: 'IG', color: '#E4405F', placeholder: '@handle',
+    href: v => 'https://instagram.com/' + v.replace(/^@/, ''), clean: v => v.trim().replace(/^@/, '') },
+  { key: 'github',    label: 'GitHub',    mark: 'GH', color: '#181717', placeholder: 'username',
+    href: v => 'https://github.com/' + v.replace(/^@/, ''), clean: v => v.trim().replace(/^@/, '') },
+  { key: 'email',     label: 'Email',     mark: '✉',  color: '#6b7280', placeholder: 'you@example.com',
+    href: v => 'mailto:' + v.trim(), clean: v => v.trim() },
+  { key: 'url',       label: 'Website',   mark: '🌐', color: '#0ea5e9', placeholder: 'example.com',
+    href: v => /^https?:\/\//i.test(v) ? v : 'https://' + v.replace(/^\/+/, ''), clean: v => v.trim() },
+];
+const LINK_KEYS = new Set(LINK_PLATFORMS.map(p => p.key));
+
+// Only ever render hrefs with a safe scheme (no javascript:/data:). The link
+// builders already produce https/tel/mailto; this is belt-and-braces on render.
+function isSafeHref(href) {
+  return /^(https?:|tel:|mailto:)/i.test(href || '');
+}
+
+// Build the set of link rows present in a name's text records.
+function nameLinks(textRecords) {
+  const t = textRecords || {};
+  return LINK_PLATFORMS.filter(p => (t[p.key] || '').trim()).map(p => {
+    const value = t[p.key];
+    const href = p.href(value);
+    return { ...p, value, href: isSafeHref(href) ? href : null };
+  });
+}
+
+// Save the social links — one text record per platform; empty clears it.
+async function saveLinks(state, dispatch, name, values) {
+  const caller = CALLER_ADDRESSES[state.org];
+  const existing = (state.names[state.org].find(n => n.name === name) || {}).text || {};
+  for (const p of LINK_PLATFORMS) {
+    const next = (values[p.key] || '').trim() ? p.clean(values[p.key]) : '';
+    const prev = (existing[p.key] || '').trim();
+    if (next === prev) continue;
+    await dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/text/' + encodeURIComponent(p.key),
+      { caller, body: { value: next } });
+  }
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Links updated.' } });
+}
+
+// Bind an EVM address to a name.
+async function addEvmAddress(state, dispatch, name, addr) {
+  if (!isEvmAddress(addr)) throw new Error('Enter a valid EVM address (0x + 40 hex characters).');
+  const caller = CALLER_ADDRESSES[state.org];
+  await dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/addr/eip155:1',
+    { caller, body: { value: addr.trim() } });
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'EVM address added to ' + name + '.' } });
+}
+
 window.CALLER_ADDRESSES = CALLER_ADDRESSES;
 window.PERSONAS         = PERSONAS;
 window.DIAL_INITIAL     = DIAL_INITIAL;
@@ -546,3 +669,20 @@ window.freshSignup          = freshSignup;
 window.fmtDate              = fmtDate;
 window.shortHash            = shortHash;
 window.dialCantonParty      = dialCantonParty;
+window.isEvmAddress         = isEvmAddress;
+window.LINK_PLATFORMS       = LINK_PLATFORMS;
+window.LINK_KEYS            = LINK_KEYS;
+window.isSafeHref           = isSafeHref;
+window.nameLinks            = nameLinks;
+window.saveLinks            = saveLinks;
+window.loadPublic           = loadPublic;
+window.sendVisitorMessage   = sendVisitorMessage;
+window.loadReceptionist     = loadReceptionist;
+window.saveReceptionist     = saveReceptionist;
+window.loadOwnerModes       = loadOwnerModes;
+window.setModeActive        = setModeActive;
+window.setModePrimary       = setModePrimary;
+window.sendModeAgent        = sendModeAgent;
+window.loadInbox            = loadInbox;
+window.loadInboxItem        = loadInboxItem;
+window.addEvmAddress        = addEvmAddress;
