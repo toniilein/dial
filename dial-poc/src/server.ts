@@ -655,7 +655,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
+// Bind 0.0.0.0 so hosted platforms (Replit, Render, Fly, …) can route to it.
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`DIAL PoC listening on http://localhost:${PORT}`);
   console.log(`Open the DIAL App at http://localhost:${PORT}/`);
 });

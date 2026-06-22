@@ -1,0 +1,24 @@
+# DIAL PoC — Replit configuration
+# "Run" button (dev): installs deps, then starts the server.
+run = "npm install && npm run start"
+entrypoint = "src/server.ts"
+modules = ["nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[env]
+# The server reads PORT (falls back to 3000). Replit routes the public URL here.
+PORT = "3000"
+
+# Map the app port to the public webview / deployment URL.
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+# One-click Deploy → Autoscale: install deps, then run the server.
+# State is SQLite re-seeded on every boot, so no database to provision.
+[deployment]
+deploymentTarget = "autoscale"
+build = ["npm", "install"]
+run = ["npm", "run", "start"]
