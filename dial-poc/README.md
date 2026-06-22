@@ -22,7 +22,7 @@ Proof-of-concept for the Phase 0 DIAL platform described in
 **Out of scope** (matches the §3.10 architecture caveat): transfers,
 sub-namespaces, real chain integration, real IDH, Wallet SDK, real auth.
 
-## Run it
+## Run it locally
 
 ```bash
 npm install
@@ -33,6 +33,61 @@ npm start
 Set `PORT` to use a different port; `DIAL_DB` to relocate the SQLite file;
 `DIAL_SIGNING_SECRET` to change the HMAC key Chain Sync uses for mock
 "on-chain" signatures.
+
+## Run it on a server
+
+It's a single Node web service — it serves both the JSON API and the static
+UI on one port, stores state in SQLite, and **re-seeds demo data
+(`alice.dial`, the `.acme` corporate domain, etc.) on every boot**. The
+SQLite files are git-ignored and ephemeral, so a fresh deploy always starts
+from the seed — no database to provision. The server reads `PORT` from the
+environment and binds all interfaces, so it drops straight into any host.
+
+### Option A — any VPS (bare Node)
+
+```bash
+git clone https://github.com/toniilein/dial.git
+cd dial/dial-poc
+npm ci --omit=dev      # tsx + better-sqlite3 are runtime deps
+PORT=3000 npm start
+```
+
+Then put a reverse proxy (Caddy/nginx) in front for TLS, e.g. Caddy:
+
+```
+your-domain.com {
+    reverse_proxy localhost:3000
+}
+```
+
+Run it under a process manager so it survives reboots — `pm2 start npm --name dial -- start`
+(from `dial-poc/`) or a small systemd unit.
+
+### Option B — Docker (VPS or any container PaaS)
+
+```bash
+cd dial/dial-poc
+docker build -t dial-poc .
+docker run -p 3000:3000 dial-poc
+```
+
+### Option C — managed PaaS from the GitHub repo (Render / Railway / Fly)
+
+The app lives in the `dial-poc/` subfolder, so point the platform at it:
+
+| Setting        | Value                       |
+|----------------|-----------------------------|
+| Root directory | `dial-poc`                  |
+| Build command  | `npm ci --omit=dev`         |
+| Start command  | `npm start`                 |
+| Health check   | `/` (HTTP 200)              |
+
+`PORT` is provided by the platform automatically — don't hard-code it. On
+Render/Railway/Fly you can alternatively select the **Dockerfile** and skip
+the build/start fields entirely.
+
+> Demo note: state resets on every restart/redeploy (SQLite is ephemeral and
+> re-seeded). For persistence, attach a disk and point `DIAL_DB` at it.
 
 ## What the DIAL App does
 

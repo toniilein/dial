@@ -1,0 +1,7 @@
+node_modules
+dial.db
+dial.db-journal
+dial.db-shm
+dial.db-wal
+*.log
+.DS_Store
