@@ -15,8 +15,20 @@ export type User = {
   password_hash: string | null;
   display_name: string;
   owner_address: string;
+  verified: number;
+  verified_at: number | null;
   created_at: number;
 };
+
+// Admins are listed in ADMIN_EMAILS (comma-separated). For local convenience,
+// demo accounts are also admins in development — but NOT in production, where
+// you must set ADMIN_EMAILS explicitly (so demo login can't grant admin live).
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+export function isAdmin(user: User | null): boolean {
+  if (!user) return false;
+  if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) return true;
+  return user.provider === 'demo' && process.env.NODE_ENV !== 'production';
+}
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
 if (!process.env.SESSION_SECRET) {
@@ -97,13 +109,25 @@ export function getByAddress(address: string): User | null {
   return (db.prepare(`SELECT * FROM users WHERE owner_address = ?`).get(address.toLowerCase()) as User) ?? null;
 }
 
-function insert(u: Omit<User, 'created_at'>): User {
-  const created_at = Date.now();
+function insert(u: Omit<User, 'created_at' | 'verified' | 'verified_at'>): User {
+  const row: User = { ...u, verified: 0, verified_at: null, created_at: Date.now() };
   db.prepare(`
     INSERT INTO users (id, email, provider, provider_sub, password_hash, display_name, owner_address, created_at)
     VALUES (@id, @email, @provider, @provider_sub, @password_hash, @display_name, @owner_address, @created_at)
-  `).run({ ...u, created_at });
-  return { ...u, created_at };
+  `).run(row);
+  return row;
+}
+
+// ── admin ──
+export function listUsers(): User[] {
+  return db.prepare(`SELECT * FROM users ORDER BY created_at ASC`).all() as User[];
+}
+export function setVerified(id: string, verified: boolean): User | null {
+  const u = getById(id);
+  if (!u) return null;
+  db.prepare(`UPDATE users SET verified = ?, verified_at = ? WHERE id = ?`)
+    .run(verified ? 1 : 0, verified ? Date.now() : null, id);
+  return getById(id);
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -168,5 +192,12 @@ export function getDemoUser(persona: string): User | null {
 }
 
 export function publicUser(u: User) {
-  return { id: u.id, email: u.email, provider: u.provider, name: u.display_name, owner_address: u.owner_address };
+  return {
+    id: u.id, email: u.email, provider: u.provider, name: u.display_name,
+    owner_address: u.owner_address, verified: !!u.verified, is_admin: isAdmin(u),
+  };
+}
+// Admin view of a user (a little more detail for the table).
+export function adminUser(u: User) {
+  return { ...publicUser(u), verified_at: u.verified_at, created_at: u.created_at };
 }

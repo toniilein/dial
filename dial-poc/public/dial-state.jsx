@@ -114,7 +114,8 @@ function accountFromUser(user) {
   const addr = String(user.owner_address).toLowerCase();
   const org = DEMO_ADDR_ORG[addr] || addr;
   CALLER_ADDRESSES[org] = addr; // register so loadOrg's owner queries work
-  return { org, address: addr, name: user.name, provider: user.provider, email: user.email };
+  return { org, address: addr, name: user.name, provider: user.provider, email: user.email,
+    verified: !!user.verified, isAdmin: !!user.is_admin };
 }
 function applyLogin(dispatch, user, opts) {
   dispatch({ type: 'login', account: accountFromUser(user),
@@ -137,6 +138,13 @@ async function authDemo(dispatch, persona, opts) {
 }
 // Start an OAuth flow by navigating the browser to the provider.
 function authStartOAuth(provider) { window.location.assign('/v1/auth/' + provider + '/start'); }
+// Admin: list + verify users.
+async function loadAdminUsers() {
+  return (await dialApi('GET', '/v1/admin/users')).users;
+}
+async function adminSetVerified(id, verified) {
+  return (await dialApi('POST', '/v1/admin/users/' + encodeURIComponent(id) + '/verify', { body: { verified } })).user;
+}
 // On app load: capture an OAuth redirect token from the URL fragment, or
 // restore an existing session, then hydrate the account from /v1/auth/me.
 async function authBootstrap(dispatch) {
@@ -254,6 +262,10 @@ function dialReducer(state, action) {
         ? { verified: false, level: null, hash: null, fullHash: null, ...PERSONAS[org] }
         : { verified: false, level: null, hash: null, fullHash: null, kind: 'consumer',
             name: acct.name, email: acct.email || '', initials: initialsOf(acct.name) };
+      // Real verification + admin come from the account (admin-controlled).
+      baseIdentity.verified = !!acct.verified;
+      baseIdentity.is_admin = !!acct.isAdmin;
+      if (acct.verified && !baseIdentity.level) baseIdentity.level = 'Verified';
       return { ...state,
         loggedIn: true,
         org,
@@ -745,3 +757,5 @@ window.authDemo             = authDemo;
 window.authStartOAuth       = authStartOAuth;
 window.authBootstrap        = authBootstrap;
 window.initialsOf           = initialsOf;
+window.loadAdminUsers       = loadAdminUsers;
+window.adminSetVerified     = adminSetVerified;

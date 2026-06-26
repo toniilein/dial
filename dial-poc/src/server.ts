@@ -27,9 +27,10 @@ function seedIfEmpty() {
   if (registry.listAll().length > 0 || domainsSvc.listAll().length > 0) return;
 
   // Demo accounts — one-click sign-in maps each to its persona's owner_address.
-  authSvc.ensureDemoUser('david', 'David Palmer', '0xalice123');
+  const davidUser = authSvc.ensureDemoUser('david', 'David Palmer', '0xalice123');
   authSvc.ensureDemoUser('acme', 'Acme Industries GmbH', '0xacme456');
   authSvc.ensureDemoUser('alice', 'Alice Schäfer', '0xbob789');
+  authSvc.setVerified(davidUser.id, true); // David is identity-verified for the demo
 
   // David — consumer with a .dial name, a receptionist, a mocked EVM address,
   // and several messages already waiting in his inbox. (Account address kept
@@ -158,6 +159,14 @@ function requireCaller(req: Request, res: Response): string | null {
   return c;
 }
 
+function requireAdmin(req: Request, res: Response): authSvc.User | null {
+  const c = requireCaller(req, res);
+  if (!c) return null;
+  const u = authSvc.getByAddress(c);
+  if (!u || !authSvc.isAdmin(u)) { res.status(403).json({ error: 'admin only' }); return null; }
+  return u;
+}
+
 // =====================================================
 // Auth — real sign-in (manual email/password, Google, Apple, demo accounts)
 // =====================================================
@@ -227,6 +236,18 @@ app.get('/v1/auth/me', (req, res) => {
 });
 
 app.post('/v1/auth/logout', (_req, res) => res.json({ ok: true })); // stateless: client drops the token
+
+// ── Admin — list users + verify their identity ──
+app.get('/v1/admin/users', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ users: authSvc.listUsers().map(authSvc.adminUser) });
+});
+app.post('/v1/admin/users/:id/verify', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const u = authSvc.setVerified(req.params.id, req.body?.verified !== false);
+  if (!u) return res.status(404).json({ error: 'user not found' });
+  res.json({ user: authSvc.adminUser(u) });
+});
 
 // ── Google ──
 app.get('/v1/auth/google/start', (req, res) => {
@@ -637,7 +658,9 @@ app.get('/v1/public/:name', (req, res) => {
   const name = req.params.name.toLowerCase();
   const page = receptionist.publicPage(name);
   if (!page) return res.status(404).json({ error: 'not found' });
-  res.json({ ...page, modes: modes.publicModes(name) });
+  const owner = registry.ownerOf(name);
+  const ownerUser = owner ? authSvc.getByAddress(owner) : null;
+  res.json({ ...page, modes: modes.publicModes(name), owner_verified: !!(ownerUser && ownerUser.verified) });
 });
 
 // Owner: full mode catalog with on/off + primary state.

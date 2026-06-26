@@ -169,6 +169,8 @@ db.exec(`
     password_hash TEXT,                   -- manual accounts only (scrypt)
     display_name  TEXT NOT NULL DEFAULT '',
     owner_address TEXT NOT NULL UNIQUE,   -- the ownership identity used everywhere
+    verified      INTEGER NOT NULL DEFAULT 0,  -- admin-set identity verification
+    verified_at   INTEGER,
     created_at    INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS users_by_provider ON users(provider, provider_sub);
