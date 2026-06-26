@@ -1,0 +1,21 @@
+# Root-level Replit config. The app lives in dial-poc/, so run/deploy from there.
+# This lets you import this GitHub repo straight into Replit and use the Git
+# pane (Pull) to update, instead of re-cloning by hand.
+run = "bash -c 'cd dial-poc && npm install && npm run start'"
+entrypoint = "dial-poc/src/server.ts"
+modules = ["nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[env]
+PORT = "3000"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[deployment]
+deploymentTarget = "autoscale"
+build = ["bash", "-c", "cd dial-poc && npm install"]
+run = ["bash", "-c", "cd dial-poc && npm run start"]
