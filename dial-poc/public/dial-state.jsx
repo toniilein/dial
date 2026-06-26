@@ -173,6 +173,16 @@ async function authBootstrap(dispatch) {
   try { const { user } = await dialApi('GET', '/v1/auth/me'); applyLogin(dispatch, user, { keepRoute: true }); }
   catch { setSession(null); } // stale/invalid token
 }
+// Re-pull the account so an admin's verification (or any change) shows up for an
+// already-logged-in user without a full re-login.
+async function refreshMe(dispatch) {
+  if (!sessionToken) return;
+  try {
+    const { user } = await dialApi('GET', '/v1/auth/me');
+    const org = DEMO_ADDR_ORG[String(user.owner_address).toLowerCase()] || String(user.owner_address).toLowerCase();
+    dispatch({ type: 'set-identity', org, patch: { verified: !!user.verified, level: user.verified ? 'Verified' : null } });
+  } catch {}
+}
 
 // ─────────────────────────────────────────────────────────────
 // Pure helpers
@@ -453,32 +463,15 @@ async function loadOrg(state, dispatch, org) {
 // Kept as the public name so the rest of the code keeps working.
 const fetchOrgNames = loadOrg;
 
-async function verifyIdentity(state, dispatch, org) {
-  const subject = CALLER_ADDRESSES[org];
-  const idn = state.identity[org] || {};
-  const kind = (PERSONAS[org] && PERSONAS[org].kind) || idn.kind || 'consumer';
-  const r = await dialApi('POST', '/v1/idh/verify', { caller: subject, body: { subject, kind } });
-  dispatch({ type: 'set-identity', org, patch: {
-    verified: true,
-    level: (PERSONAS[org] && PERSONAS[org].fallbackLevel) || 'Consumer · Verified',
-    hash: shortHash(r.hash),
-    fullHash: r.hash,
-  }});
-  return r.hash;
-}
+// Identity verification is admin-only — users can no longer self-verify. The
+// `verified` flag comes from the backend account (set by an admin) via /me.
 
-// Register a name. The backend auto-binds the DIAL Canton party id and
-// returns it so the Done step can show it as the registration receipt.
-// `opts.skipVerify=true` → demo-mode self-attested registration.
+// Register a name. The backend auto-binds the DIAL Canton party id and returns
+// it so the Done step can show it as the registration receipt.
 async function registerName(state, dispatch, label, durationYears, opts) {
-  opts = opts || {};
   const org = state.org;
   const caller = CALLER_ADDRESSES[org];
-  let attHash = '';
-  if (!opts.skipVerify) {
-    attHash = state.identity[org].fullHash;
-    if (!attHash) attHash = await verifyIdentity(state, dispatch, org);
-  }
+  const attHash = (state.identity[org] && state.identity[org].fullHash) || '';
   const r = await dialApi('POST', '/v1/registrar/register', {
     caller,
     body: { name: label + '.dial', duration_years: durationYears, attestation_hash: attHash },
@@ -522,8 +515,7 @@ async function releaseName(state, dispatch, name) {
 async function registerDomain(state, dispatch, label, durationYears, records) {
   const org = state.org;
   const caller = CALLER_ADDRESSES[org];
-  let attHash = state.identity[org].fullHash;
-  if (!attHash) attHash = await verifyIdentity(state, dispatch, org);
+  const attHash = (state.identity[org] && state.identity[org].fullHash) || '';
 
   await dialApi('POST', '/v1/registrar/domain/register', {
     caller,
@@ -733,7 +725,6 @@ window.dialDomainCheck  = dialDomainCheck;
 window.dialReducer      = dialReducer;
 window.fetchOrgNames    = fetchOrgNames;
 window.loadOrg          = loadOrg;
-window.verifyIdentity   = verifyIdentity;
 window.registerName     = registerName;
 window.updateRecords    = updateRecords;
 window.renewName        = renewName;
@@ -770,6 +761,7 @@ window.authLogin            = authLogin;
 window.authDemo             = authDemo;
 window.authStartOAuth       = authStartOAuth;
 window.authBootstrap        = authBootstrap;
+window.refreshMe            = refreshMe;
 window.initialsOf           = initialsOf;
 window.loadAdminUsers       = loadAdminUsers;
 window.adminSetVerified     = adminSetVerified;

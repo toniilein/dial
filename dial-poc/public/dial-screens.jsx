@@ -434,7 +434,7 @@ function ResultCard({ result }) {
         <button className="dial-btn primary" onClick={() => {
           if (!state.loggedIn) { dispatch({ type: 'modal', modal: { kind: 'login' } }); return; }
           const id = state.identity[state.org];
-          if (!id.verified) { dispatch({ type: 'modal', modal: { kind: 'verify-only' } }); return; }
+          if (!id.verified) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Your account must be verified by an admin to register a corporate domain.' } }); return; }
           dispatch({ type: 'modal', modal: {
             kind: 'register-domain',
             label: result.label, step: 0, duration: 1, records: {},
@@ -465,6 +465,9 @@ function ScreenDashboard() {
   const id      = state.identity[state.org];
   const isAcme  = state.org === 'acme';
 
+  // Pull the latest verified status (an admin may have verified the account).
+  React.useEffect(() => { refreshMe(dispatch).catch(() => {}); }, []);
+
   const totalNamesUnderDomains = domains.reduce((n, d) => n + d.names.length, 0);
 
   return (
@@ -491,7 +494,7 @@ function ScreenDashboard() {
           </button>
           {isAcme ? (
             <button className="dial-btn primary" onClick={() => {
-              if (!id.verified) { dispatch({ type: 'modal', modal: { kind: 'verify-only' } }); return; }
+              if (!id.verified) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Your account must be verified by an admin to register a corporate domain.' } }); return; }
               dispatch({ type: 'modal', modal: { kind: 'register-domain', label: '', step: 0, duration: 1, records: {} } });
             }}>
               <Building size={14} stroke="#fff" /> {id.verified ? 'Register a corporate domain' : 'Verify to register a domain'}
@@ -508,21 +511,17 @@ function ScreenDashboard() {
         <Shield size={20} stroke={id.verified ? 'var(--dial-ok)' : 'var(--dial-accent)'} />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>
-            {id.verified ? 'Vodafone Pairpoint identity attestation on file' : 'Identity not verified yet'}
+            {id.verified ? 'Identity verified' : 'Identity not verified yet'}
           </div>
           <div className="dial-muted" style={{ fontSize: 12 }}>
             {id.verified
-              ? <>Level <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{id.level}</code> · attestation hash <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{id.hash}</code>
-                {isAcme && id.regId && <> · {id.regId} {id.country}</>}</>
-              : 'You need to verify through Pairpoint before you can register a name.'}
+              ? <>Verified by DIAL{isAcme && id.regId && <> · {id.regId} {id.country}</>}. The {VERIFIED_DISCOUNT_PCT}% verified discount applies.</>
+              : 'A DIAL admin reviews and verifies accounts. You can still register names; verification unlocks the verified badge and discount.'}
           </div>
         </div>
-        <DemoVerifyToggle />
-        {!id.verified && (
-          <button className="dial-btn primary" onClick={() => dispatch({ type: 'modal', modal: { kind: 'verify-only' } })}>
-            Verify account
-          </button>
-        )}
+        {id.verified
+          ? <span className="dial-pill ok"><CheckCircle size={11} /> Verified</span>
+          : <span className="dial-pill warn">Pending review</span>}
       </div>
 
       {/* Corporate domains — only for enterprise context */}
@@ -562,38 +561,6 @@ function ScreenDashboard() {
   );
 }
 
-// Mockup-only toggle that flips the persona's verified flag in React state.
-// Verify calls /v1/idh/verify to get a real attestation hash; unverify just
-// clears the UI state locally. Useful for demoing both dashboard states.
-function DemoVerifyToggle() {
-  const { state, dispatch } = useDial();
-  const id = state.identity[state.org];
-  const [working, setWorking] = React.useState(false);
-  const onClick = async () => {
-    setWorking(true);
-    try {
-      if (id.verified) {
-        dispatch({ type: 'set-identity', org: state.org, patch: { verified: false, level: null, hash: null, fullHash: null } });
-        dispatch({ type: 'toast', toast: { kind: 'info', text: 'Mock: ' + id.name.split(' ')[0] + ' is now unverified.' } });
-      } else {
-        await verifyIdentity(state, dispatch, state.org);
-        dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Mock: ' + id.name.split(' ')[0] + ' is now verified.' } });
-      }
-    } catch (e) {
-      dispatch({ type: 'toast', toast: { kind: 'info', text: 'Toggle failed: ' + e.message } });
-    } finally {
-      setWorking(false);
-    }
-  };
-  return (
-    <button className="dial-btn ghost sm" onClick={onClick} disabled={working}
-      title="Mockup-only: flip the persona's verified state for demoing both UI states">
-      <span style={{ fontSize: 9.5, color: 'var(--dial-muted)', letterSpacing: '0.08em', marginRight: 6 }}>MOCK</span>
-      {id.verified ? 'Unverify' : 'Verify'}
-    </button>
-  );
-}
-
 function DomainEmpty() {
   const { state, dispatch } = useDial();
   const id = state.identity[state.org];
@@ -610,10 +577,10 @@ function DomainEmpty() {
         </div>
       </div>
       <button className="dial-btn primary" onClick={() => {
-        if (!id.verified) { dispatch({ type: 'modal', modal: { kind: 'verify-only' } }); return; }
+        if (!id.verified) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Your account must be verified by an admin to register a corporate domain.' } }); return; }
         dispatch({ type: 'modal', modal: { kind: 'register-domain', label: '', step: 0, duration: 1, records: {} } });
       }}>
-        {id.verified ? 'Register · from 2,400 USDC/yr' : 'Verify to register a domain'}
+        {id.verified ? 'Register · from 2,400 USDC/yr' : 'Verification required'}
       </button>
     </div>
   );

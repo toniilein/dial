@@ -9,6 +9,14 @@ function DialApp() {
   // On load: capture an OAuth redirect token / restore an existing session.
   React.useEffect(() => { authBootstrap(dispatch).catch(() => {}); }, []);
 
+  // Re-sync the account (e.g. admin-set verified status) when the tab regains
+  // focus, so changes show up without a re-login.
+  React.useEffect(() => {
+    const onFocus = () => { if (state.loggedIn) refreshMe(dispatch).catch(() => {}); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [state.loggedIn]);
+
   // Toast auto-dismiss.
   React.useEffect(() => {
     if (!state.toast) return;

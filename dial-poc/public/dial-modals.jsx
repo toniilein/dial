@@ -70,7 +70,7 @@ function RegisterFlow() {
     setError(null);
     setVerifying(true);
     try {
-      await verifyIdentity(state, dispatch, state.org);
+      dispatch({ type: 'toast', toast: { kind: 'info', text: 'Verification is handled by a DIAL admin.' } });
       setTimeout(() => setStep(2), 350);
     } catch (e) {
       setError(e.message);
@@ -533,7 +533,7 @@ function VerifyOnlyModal() {
   const run = async () => {
     setError(null); setVerifying(true);
     try {
-      await verifyIdentity(state, dispatch, state.org);
+      dispatch({ type: 'toast', toast: { kind: 'info', text: 'Verification is handled by a DIAL admin.' } });
       setStep(lastStep);
     } catch (e) {
       setError(e.message);
@@ -1625,7 +1625,6 @@ function DialModals() {
   if (state.modal.kind === 'login')           return <LoginModal />;
   if (state.modal.kind === 'register')        return <RegisterFlow />;
   if (state.modal.kind === 'subname')         return <SubnameModal />;
-  if (state.modal.kind === 'verify-only')     return <VerifyOnlyModal />;
   if (state.modal.kind === 'release')         return <ReleaseModal />;
   if (state.modal.kind === 'register-domain') return <RegisterDomainFlow />;
   if (state.modal.kind === 'issue-name')      return <IssueNameModal />;
