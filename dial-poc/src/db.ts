@@ -156,4 +156,20 @@ db.exec(`
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (name) REFERENCES namespaces(name) ON DELETE CASCADE
   );
+
+  -- Real user accounts (replaces the mocked x-owner-address login). Each user
+  -- maps to one owner_address — the identity all ownership checks already use —
+  -- so the rest of the app is unchanged. Auth via manual email/password,
+  -- Google, or Apple; demo personas are seeded as provider='demo' accounts.
+  CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    email         TEXT UNIQUE,
+    provider      TEXT NOT NULL,          -- 'manual' | 'google' | 'apple' | 'demo'
+    provider_sub  TEXT,                   -- OAuth subject id (google/apple)
+    password_hash TEXT,                   -- manual accounts only (scrypt)
+    display_name  TEXT NOT NULL DEFAULT '',
+    owner_address TEXT NOT NULL UNIQUE,   -- the ownership identity used everywhere
+    created_at    INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS users_by_provider ON users(provider, provider_sub);
 `);

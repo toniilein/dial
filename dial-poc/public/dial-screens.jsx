@@ -200,61 +200,12 @@ function CartPopover({ open, onClose }) {
 // the same content as the right-side drawer (social login + form + toggle)
 // in a more compact wrapper.
 function SigninPopover({ open, onClose }) {
-  const { state, dispatch } = useDial();
-  // Stays mounted across hover open/close so typed credentials, intent,
-  // and form state are preserved.
-  const [intent, setIntent] = React.useState('signin');
-  const LF = window.LoginForm;
-  const G  = window.GoogleIcon;
-  const A  = window.AppleIcon;
-
-  const socialLogin = (provider, org) => {
-    dispatch({ type: 'login', org });
-    const persona = window.PERSONAS && window.PERSONAS[org];
-    if (persona) dispatch({ type: 'toast', toast: { kind: 'ok', text: `Mock: signed in as ${persona.name.split(' ')[0]} via ${provider}.` } });
-    onClose();
-  };
-  const submitForm = async (org, opts) => {
-    if (opts && opts.fresh && window.freshSignup) await window.freshSignup(state, dispatch, org);
-    else dispatch({ type: 'login', org });
-    onClose();
-  };
-
+  const Panel = window.AuthPanel;
   return (
     <div className="dial-signin-popover" onClick={e => e.stopPropagation()}
       style={open ? undefined : { display: 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-        <strong style={{ fontSize: 13 }}>
-          {intent === 'register' ? 'Create your DIAL account' : 'Sign in to DIAL'}
-        </strong>
-      </div>
-      <div className="dial-muted" style={{ fontSize: 12, marginBottom: 12 }}>
-        {intent === 'register'
-          ? 'Create a DIAL account. You can verify your identity afterwards to unlock the 25% discount.'
-          : 'Sign in to manage your DIAL names and check out your cart.'}
-      </div>
-
-      {LF && <LF intent={intent} onSubmit={submitForm} />}
-
-      <div className="dial-divider-text">or continue with</div>
-
-      <button type="button" className="dial-social-btn" onClick={() => socialLogin('Google', 'bob')}>
-        {G && <G size={18} />} Continue with Google
-      </button>
-      <button type="button" className="dial-social-btn apple" onClick={() => socialLogin('Apple', 'personal')}>
-        {A && <A size={18} />} Continue with Apple
-      </button>
-
-      <div style={{ marginTop: 16, paddingTop: 12, borderTop: 'var(--dial-border-w) dashed var(--dial-border)',
-        textAlign: 'center', fontSize: 12, color: 'var(--dial-muted)' }}>
-        {intent === 'register' ? (
-          <>Already have an account? <a onClick={() => setIntent('signin')}
-            style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Sign in</a></>
-        ) : (
-          <>New to DIAL? <a onClick={() => setIntent('register')}
-            style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Create an account</a></>
-        )}
-      </div>
+      <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Sign in to DIAL</strong>
+      {Panel && <Panel onClose={onClose} />}
     </div>
   );
 }

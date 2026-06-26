@@ -1160,75 +1160,23 @@ function ReleaseModal() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Sign-in modal — pick which account to log in as (3 demo personas).
+// Sign-in modal — real auth (email/password, Google, Apple, demo accounts).
 // ─────────────────────────────────────────────────────────────
-// Demo username → persona mapping. Any non-empty password accepted.
-const DEMO_USERS = { david: 'personal', alice: 'bob', acme: 'acme' };
-
 function LoginModal() {
-  const { state, dispatch } = useDial();
-  const [intent, setIntent] = React.useState(state.modal?.intent === 'register' ? 'register' : 'signin');
+  const { dispatch } = useDial();
   const close = () => dispatch({ type: 'modal', modal: null });
-
-  // Social login mock — Apple → David (personal), Google → Alice.
-  // (In production these would go through Pairpoint federated identity.)
-  const socialLogin = (provider, org) => {
-    dispatch({ type: 'login', org });
-    const persona = PERSONAS[org];
-    dispatch({ type: 'toast', toast: { kind: 'ok', text: `Mock: signed in as ${persona.name.split(' ')[0]} via ${provider}.` } });
-  };
-
   return (
     <div className="dial-drawer-backdrop" onClick={close}>
       <div className="dial-drawer" onClick={e => e.stopPropagation()}>
         <div className="dial-drawer-head">
           <div style={{ flex: 1 }}>
-            <div className="dial-eyebrow" style={{ marginBottom: 2 }}>
-              {intent === 'register' ? 'Sign up' : 'Sign in'}
-            </div>
-            <div className="dial-modal-title">
-              {intent === 'register' ? 'Create your DIAL account' : 'Welcome back'}
-            </div>
+            <div className="dial-eyebrow" style={{ marginBottom: 2 }}>Sign in</div>
+            <div className="dial-modal-title">Welcome to DIAL</div>
           </div>
           <button className="dial-iconbtn" onClick={close}><XIcon size={16} /></button>
         </div>
-
         <div className="dial-drawer-body">
-          <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
-            {intent === 'register'
-              ? 'Create a DIAL account to start registering names. You can verify your identity afterwards to unlock the 25% discount.'
-              : 'Sign in to manage your DIAL names and check out your cart.'}
-          </div>
-
-          {/* Username/password (or registration) form first */}
-          <LoginForm intent={intent} onSubmit={async (org, opts) => {
-            if (opts && opts.fresh) await freshSignup(state, dispatch, org);
-            else dispatch({ type: 'login', org });
-          }} />
-
-          <div className="dial-divider-text">or continue with</div>
-
-          {/* Social login below the form */}
-          <button type="button" className="dial-social-btn" onClick={() => socialLogin('Google', 'bob')}>
-            <GoogleIcon size={18} />
-            Continue with Google
-          </button>
-          <button type="button" className="dial-social-btn apple" onClick={() => socialLogin('Apple', 'personal')}>
-            <AppleIcon size={18} />
-            Continue with Apple
-          </button>
-
-          {/* In-drawer mode toggle */}
-          <div style={{ marginTop: 22, paddingTop: 16, borderTop: 'var(--dial-border-w) dashed var(--dial-border)',
-            textAlign: 'center', fontSize: 12.5, color: 'var(--dial-muted)' }}>
-            {intent === 'register' ? (
-              <>Already have an account? <a onClick={() => setIntent('signin')}
-                style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Sign in</a></>
-            ) : (
-              <>New to DIAL? <a onClick={() => setIntent('register')}
-                style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Create an account</a></>
-            )}
-          </div>
+          <AuthPanel onClose={close} />
         </div>
       </div>
     </div>
@@ -1254,172 +1202,103 @@ function AppleIcon({ size = 18 }) {
   );
 }
 
-function LoginForm({ intent, onSubmit }) {
-  return intent === 'register'
-    ? <RegisterForm onSubmit={onSubmit} />
-    : <SigninForm   onSubmit={onSubmit} />;
-}
-
-function SigninForm({ onSubmit }) {
-  const [username, setUsername] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [showPw, setShowPw]     = React.useState(false);
-  const [error, setError]       = React.useState(null);
-
-  const submit = (e) => {
-    e && e.preventDefault && e.preventDefault();
-    const u = username.trim().toLowerCase();
-    const org = DEMO_USERS[u];
-    if (!org)      { setError(`Unknown user. Try ${Object.keys(DEMO_USERS).join(', ')}.`); return; }
-    if (!password) { setError('Password required.'); return; }
-    setError(null);
-    onSubmit(org);
-  };
-
-  return (
-    <form onSubmit={submit} autoComplete="off">
-      {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)', color: 'var(--dial-accent)',
-        padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>
-        {error}
-      </div>}
-
-      {/* Honeypot inputs to absorb browser autofill heuristics. */}
-      <input type="text" name="fakeusernameremembered" autoComplete="username" tabIndex={-1}
-        style={{ position: 'absolute', left: -9999, width: 1, height: 1, opacity: 0 }} aria-hidden />
-      <input type="password" name="fakepasswordremembered" autoComplete="current-password" tabIndex={-1}
-        style={{ position: 'absolute', left: -9999, width: 1, height: 1, opacity: 0 }} aria-hidden />
-
-      <div style={{ marginBottom: 12 }}>
-        <div className="dial-field-label">Username</div>
-        <div className="dial-input-wrap">
-          <input value={username} onChange={e => setUsername(e.target.value)}
-            placeholder="david, alice, or acme" autoFocus
-            name="dial-signin-user" autoComplete="off"
-            data-form-type="other" data-lpignore="true" data-1p-ignore />
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 6 }}>
-        <div className="dial-field-label">Password</div>
-        <div className="dial-input-wrap">
-          <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-            placeholder="••••••••"
-            name="dial-signin-secret" autoComplete="new-password"
-            data-form-type="other" data-lpignore="true" data-1p-ignore />
-          <button type="button" className="dial-btn ghost sm" onClick={() => setShowPw(v => !v)}
-            style={{ padding: '4px 8px', fontSize: 11 }}>
-            {showPw ? 'Hide' : 'Show'}
-          </button>
-        </div>
-      </div>
-
-      <div className="dial-muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 12 }}>
-        Demo: any password works for the three personas.
-      </div>
-
-      <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }}>
-        Sign in <ArrowR2 size={14} stroke="#fff" />
-      </button>
-    </form>
-  );
-}
-
-function RegisterForm({ onSubmit }) {
-  const [name, setName]         = React.useState('');
+// Real sign-in / registration. Shared by the modal, the topbar popover, and
+// the checkout account step (which passes opts to stay in the flow).
+function AuthPanel({ onClose, opts }) {
+  const { dispatch } = useDial();
+  const [mode, setMode]         = React.useState('signin'); // 'signin' | 'register'
   const [email, setEmail]       = React.useState('');
   const [password, setPassword] = React.useState('');
-  const [confirm, setConfirm]   = React.useState('');
+  const [name, setName]         = React.useState('');
   const [showPw, setShowPw]     = React.useState(false);
-  const [terms, setTerms]       = React.useState(false);
+  const [busy, setBusy]         = React.useState(false);
   const [error, setError]       = React.useState(null);
+  const [prov, setProv]         = React.useState({ google: false, apple: false });
 
-  const submit = (e) => {
+  React.useEffect(() => { authProviders().then(setProv).catch(() => {}); }, []);
+  const done = () => { onClose && onClose(); };
+
+  const submit = async (e) => {
     e && e.preventDefault && e.preventDefault();
-    if (!name.trim())              { setError('Please enter your full name.');         return; }
-    if (!/.+@.+\..+/.test(email))  { setError('Please enter a valid email address.'); return; }
-    if (password.length < 6)       { setError('Password must be at least 6 characters.'); return; }
-    if (password !== confirm)      { setError('Passwords do not match.');             return; }
-    if (!terms)                    { setError('You must agree to the terms.');        return; }
-    setError(null);
-    // Demo: registration signs you in as the fresh "Alice" persona AND wipes
-    // any leftover backend names/domains so the dashboard starts clean.
-    onSubmit('bob', { fresh: true });
+    setError(null); setBusy(true);
+    try {
+      if (mode === 'register') await authRegister(dispatch, { email, password, name }, opts);
+      else                     await authLogin(dispatch, { email, password }, opts);
+      done();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const demo = async (persona) => {
+    setError(null); setBusy(true);
+    try { await authDemo(dispatch, persona, opts); done(); }
+    catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
+  const field = (label, node) => (
+    <div style={{ marginBottom: 12 }}>
+      <div className="dial-field-label">{label}</div>
+      <div className="dial-input-wrap">{node}</div>
+    </div>
+  );
+
   return (
-    <form onSubmit={submit} autoComplete="off">
-      {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)', color: 'var(--dial-accent)',
-        padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>
-        {error}
-      </div>}
-
-      <input type="text" name="fakeusernameremembered" autoComplete="username" tabIndex={-1}
-        style={{ position: 'absolute', left: -9999, width: 1, height: 1, opacity: 0 }} aria-hidden />
-      <input type="password" name="fakepasswordremembered" autoComplete="current-password" tabIndex={-1}
-        style={{ position: 'absolute', left: -9999, width: 1, height: 1, opacity: 0 }} aria-hidden />
-
-      <div style={{ marginBottom: 12 }}>
-        <div className="dial-field-label">Full name</div>
-        <div className="dial-input-wrap">
-          <input value={name} onChange={e => setName(e.target.value)}
-            placeholder="e.g. Alice Schäfer" autoFocus
-            name="dial-reg-name" autoComplete="off"
-            data-form-type="other" data-lpignore="true" data-1p-ignore />
-        </div>
+    <div>
+      <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
+        {mode === 'register'
+          ? 'Create a DIAL account to register names and manage your profile.'
+          : 'Sign in to manage your DIAL names, profile, and inbox.'}
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <div className="dial-field-label">Email</div>
-        <div className="dial-input-wrap">
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            name="dial-reg-email" autoComplete="off"
-            data-form-type="other" data-lpignore="true" data-1p-ignore />
-        </div>
-      </div>
+      {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+        color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>{error}</div>}
 
-      <div style={{ marginBottom: 12 }}>
-        <div className="dial-field-label">Password</div>
-        <div className="dial-input-wrap">
-          <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-            placeholder="At least 6 characters"
-            name="dial-reg-secret" autoComplete="new-password"
-            data-form-type="other" data-lpignore="true" data-1p-ignore />
-          <button type="button" className="dial-btn ghost sm" onClick={() => setShowPw(v => !v)}
-            style={{ padding: '4px 8px', fontSize: 11 }}>
-            {showPw ? 'Hide' : 'Show'}
-          </button>
-        </div>
-      </div>
+      <form onSubmit={submit} autoComplete="off">
+        {mode === 'register' && field('Full name',
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. David Palmer" autoFocus />)}
+        {field('Email',
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoFocus={mode === 'signin'} />)}
+        {field('Password',
+          <>
+            <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+              placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'} />
+            <button type="button" className="dial-btn ghost sm" onClick={() => setShowPw(v => !v)} style={{ padding: '4px 8px', fontSize: 11 }}>
+              {showPw ? 'Hide' : 'Show'}
+            </button>
+          </>)}
+        <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }} disabled={busy}>
+          {busy ? 'Working…' : (mode === 'register' ? 'Create account' : 'Sign in')} <ArrowR2 size={14} stroke="#fff" />
+        </button>
+      </form>
 
-      <div style={{ marginBottom: 12 }}>
-        <div className="dial-field-label">Confirm password</div>
-        <div className="dial-input-wrap">
-          <input type={showPw ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)}
-            placeholder="Re-enter your password"
-            name="dial-reg-secret-confirm" autoComplete="new-password"
-            data-form-type="other" data-lpignore="true" data-1p-ignore />
-        </div>
-      </div>
-
-      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, marginTop: 6, marginBottom: 14, cursor: 'pointer' }}>
-        <input type="checkbox" checked={terms} onChange={e => setTerms(e.target.checked)}
-          style={{ marginTop: 2, accentColor: 'var(--dial-accent)' }} />
-        <span style={{ color: 'var(--dial-text-2)', lineHeight: 1.5 }}>
-          I agree to DIAL's <a style={{ color: 'var(--dial-accent)', cursor: 'pointer' }}>Terms of Service</a> and <a style={{ color: 'var(--dial-accent)', cursor: 'pointer' }}>Privacy Policy</a>.
-        </span>
-      </label>
-
-      <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }}>
-        Create account <ArrowR2 size={14} stroke="#fff" />
+      <div className="dial-divider-text">or continue with</div>
+      <button type="button" className="dial-social-btn" disabled={!prov.google}
+        onClick={() => authStartOAuth('google')} title={prov.google ? '' : 'Not configured — set GOOGLE_CLIENT_ID'}>
+        <GoogleIcon size={18} /> Continue with Google
+        {!prov.google && <span style={{ fontSize: 11, marginLeft: 6, opacity: .6 }}>· setup needed</span>}
+      </button>
+      <button type="button" className="dial-social-btn apple" disabled={!prov.apple}
+        onClick={() => authStartOAuth('apple')} title={prov.apple ? '' : 'Not configured — set APPLE_CLIENT_ID'}>
+        <AppleIcon size={18} /> Continue with Apple
+        {!prov.apple && <span style={{ fontSize: 11, marginLeft: 6, opacity: .6 }}>· setup needed</span>}
       </button>
 
-      <div className="dial-muted" style={{ fontSize: 11, marginTop: 10, textAlign: 'center' }}>
-        Demo: this creates an Alice-style account — verify identity from the dashboard to unlock the {VERIFIED_DISCOUNT_PCT}% discount.
+      <div className="dial-divider-text">demo accounts</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {[['david', 'David'], ['acme', 'Acme'], ['alice', 'Alice']].map(([k, label]) => (
+          <button key={k} type="button" className="dial-btn" style={{ flex: 1 }} disabled={busy} onClick={() => demo(k)}>{label}</button>
+        ))}
       </div>
-    </form>
+
+      <div style={{ marginTop: 18, paddingTop: 14, borderTop: 'var(--dial-border-w) dashed var(--dial-border)',
+        textAlign: 'center', fontSize: 12.5, color: 'var(--dial-muted)' }}>
+        {mode === 'register'
+          ? <>Already have an account? <a onClick={() => { setMode('signin'); setError(null); }} style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Sign in</a></>
+          : <>New to DIAL? <a onClick={() => { setMode('register'); setError(null); }} style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Create an account</a></>}
+      </div>
+    </div>
   );
 }
+window.AuthPanel = AuthPanel;
+window.LoginForm = AuthPanel; // back-compat for the topbar popover
 
 // ─────────────────────────────────────────────────────────────
 // Checkout — GoDaddy-style multi-step purchase flow for the cart.
@@ -1454,8 +1333,6 @@ function CheckoutFlow() {
   const stepDone = (i) => i < step;
   const next = () => setStep(s => Math.min(s + 1, stepsLabel.length - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
-
-  const onSignIn = (org) => dispatch({ type: 'login', org, keepRoute: true, keepModal: true });
 
   const runPay = async () => {
     setError(null); setWorking(true);
@@ -1635,16 +1512,7 @@ function CheckoutAccount({ onSignIn }) {
 
   return (
     <div>
-      <LoginForm intent="signin" onSubmit={(org) => onSignIn(org)} />
-      <div className="dial-divider-text">or continue with</div>
-      <button type="button" className="dial-social-btn" onClick={() => onSignIn('bob')}>
-        <GoogleIcon size={18} />
-        Continue with Google
-      </button>
-      <button type="button" className="dial-social-btn apple" onClick={() => onSignIn('personal')}>
-        <AppleIcon size={18} />
-        Continue with Apple
-      </button>
+      <AuthPanel onClose={next} opts={{ keepRoute: true, keepModal: true }} />
     </div>
   );
 }
@@ -1772,6 +1640,5 @@ window.DialModalFrame  = DialModalFrame;
 window.RegStepIdentity = RegStepIdentity;
 window.ChainField      = ChainField;
 window.Line            = Line;
-window.LoginForm       = LoginForm;
 window.GoogleIcon      = GoogleIcon;
 window.AppleIcon       = AppleIcon;

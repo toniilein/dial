@@ -14,6 +14,8 @@ import * as domainsSvc from './services/domains.ts';
 import * as canton from './services/canton.ts';
 import * as receptionist from './services/receptionist.ts';
 import * as modes from './services/modes.ts';
+import * as authSvc from './services/auth.ts';
+import * as oauth from './services/oauth.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -23,6 +25,11 @@ chainSync.start();
 // Seed demo data on first run so the design's dashboard isn't empty.
 function seedIfEmpty() {
   if (registry.listAll().length > 0 || domainsSvc.listAll().length > 0) return;
+
+  // Demo accounts — one-click sign-in maps each to its persona's owner_address.
+  authSvc.ensureDemoUser('david', 'David Palmer', '0xalice123');
+  authSvc.ensureDemoUser('acme', 'Acme Industries GmbH', '0xacme456');
+  authSvc.ensureDemoUser('alice', 'Alice Schäfer', '0xbob789');
 
   // David — consumer with a .dial name, a receptionist, a mocked EVM address,
   // and several messages already waiting in his inbox. (Account address kept
@@ -117,7 +124,9 @@ function seedIfEmpty() {
 seedIfEmpty();
 
 const app = express();
+app.set('trust proxy', true); // hosted behind a proxy (Replit) — for correct protocol/host
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Apple OAuth posts form_post
 
 // Tiny request logger so the demo flow is visible in the terminal.
 app.use((req, _res, next) => {
@@ -127,24 +136,133 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ---------- §4.4 API authentication (stub) ----------
-// §4.3 prescribes a single auth method for all API consumers. For the PoC,
-// we trust an X-Owner-Address header to identify the caller. In production
-// this would be OAuth2 client-credentials or API keys, and ownership ops
-// would also carry a Pairpoint AA-signed user op.
+// ---------- §4.4 API authentication ----------
+// A signed session token (Authorization: Bearer), issued at login, identifies
+// the caller and resolves to their owner_address — no longer a spoofable
+// header. Ownership checks downstream compare against this resolved address.
 function caller(req: Request): string | null {
-  const h = req.header('x-owner-address');
-  return h ? h.toLowerCase() : null;
+  const auth = req.header('authorization');
+  if (auth && /^Bearer\s+/i.test(auth)) {
+    const session = authSvc.verifySession(auth.replace(/^Bearer\s+/i, '').trim());
+    if (session) return session.addr;
+  }
+  return null;
 }
 
 function requireCaller(req: Request, res: Response): string | null {
   const c = caller(req);
   if (!c) {
-    res.status(401).json({ error: 'X-Owner-Address header required (mock auth)' });
+    res.status(401).json({ error: 'authentication required' });
     return null;
   }
   return c;
 }
+
+// =====================================================
+// Auth — real sign-in (manual email/password, Google, Apple, demo accounts)
+// =====================================================
+function baseUrl(req: Request): string {
+  if (process.env.OAUTH_BASE_URL) return process.env.OAUTH_BASE_URL.replace(/\/$/, '');
+  return `${req.protocol}://${req.get('host')}`;
+}
+function finishLogin(res: Response, user: authSvc.User) {
+  res.json({ token: authSvc.issueSession(user), user: authSvc.publicUser(user) });
+}
+// After OAuth, hand the session token back to the SPA via the URL fragment
+// (not sent to the server/logs) and let the frontend store it.
+function oauthRedirect(req: Request, res: Response, token: string) {
+  res.redirect(`${baseUrl(req)}/#auth=${encodeURIComponent(token)}`);
+}
+function oauthError(req: Request, res: Response, msg: string) {
+  res.redirect(`${baseUrl(req)}/#auth_error=${encodeURIComponent(msg)}`);
+}
+
+// Per-IP throttle for credential endpoints (brute-force / stuffing / spam).
+const authHits = new Map<string, { n: number; t: number }>();
+function authThrottled(req: Request, res: Response): boolean {
+  if (rateLimited(authHits, req.ip || 'unknown', 15)) {
+    res.status(429).json({ error: 'Too many attempts — try again in a minute.' });
+    return true;
+  }
+  return false;
+}
+
+// Which social providers are configured (so the UI can enable/disable buttons).
+app.get('/v1/auth/providers', (_req, res) => {
+  res.json({ google: oauth.googleConfigured(), apple: oauth.appleConfigured() });
+});
+
+app.post('/v1/auth/register', (req, res) => {
+  if (authThrottled(req, res)) return;
+  const { email, password, name } = req.body ?? {};
+  try { finishLogin(res, authSvc.registerManual(String(email ?? ''), String(password ?? ''), String(name ?? ''))); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+
+app.post('/v1/auth/login', (req, res) => {
+  if (authThrottled(req, res)) return;
+  const { email, password } = req.body ?? {};
+  try { finishLogin(res, authSvc.loginManual(String(email ?? ''), String(password ?? ''))); }
+  catch (e) { res.status(401).json({ error: (e as Error).message }); }
+});
+
+// One-click demo accounts (David / Acme / Alice). Tied to seeded demo accounts
+// and disabled in production unless explicitly enabled.
+const DEMO_LOGIN = process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEMO_LOGIN === 'true';
+app.post('/v1/auth/demo', (req, res) => {
+  if (!DEMO_LOGIN) return res.status(403).json({ error: 'demo login disabled' });
+  const persona = String(req.body?.persona ?? '');
+  const u = authSvc.getDemoUser(persona);
+  if (!u) return res.status(404).json({ error: 'unknown demo account' });
+  finishLogin(res, u);
+});
+
+app.get('/v1/auth/me', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const u = authSvc.getByAddress(c);
+  if (!u) return res.status(404).json({ error: 'account not found' });
+  res.json({ user: authSvc.publicUser(u) });
+});
+
+app.post('/v1/auth/logout', (_req, res) => res.json({ ok: true })); // stateless: client drops the token
+
+// ── Google ──
+app.get('/v1/auth/google/start', (req, res) => {
+  if (!oauth.googleConfigured()) return oauthError(req, res, 'Google sign-in is not configured');
+  const redirectUri = `${baseUrl(req)}/v1/auth/google/callback`;
+  res.redirect(oauth.googleAuthUrl(redirectUri, oauth.signState({ p: 'google' })));
+});
+app.get('/v1/auth/google/callback', async (req, res) => {
+  try {
+    if (!oauth.verifyState(String(req.query.state ?? ''))) return oauthError(req, res, 'invalid state');
+    if (req.query.error) return oauthError(req, res, String(req.query.error));
+    const redirectUri = `${baseUrl(req)}/v1/auth/google/callback`;
+    const prof = await oauth.googleExchange(redirectUri, String(req.query.code ?? ''));
+    const user = authSvc.upsertOAuth('google', prof.sub, prof.email, prof.name, prof.emailVerified);
+    oauthRedirect(req, res, authSvc.issueSession(user));
+  } catch (e) { oauthError(req, res, (e as Error).message); }
+});
+
+// ── Apple (response_mode=form_post → callback is POST) ──
+app.get('/v1/auth/apple/start', (req, res) => {
+  if (!oauth.appleConfigured()) return oauthError(req, res, 'Apple sign-in is not configured');
+  const redirectUri = `${baseUrl(req)}/v1/auth/apple/callback`;
+  res.redirect(oauth.appleAuthUrl(redirectUri, oauth.signState({ p: 'apple' })));
+});
+app.post('/v1/auth/apple/callback', async (req, res) => {
+  try {
+    if (!oauth.verifyState(String(req.body?.state ?? ''))) return oauthError(req, res, 'invalid state');
+    if (req.body?.error) return oauthError(req, res, String(req.body.error));
+    const redirectUri = `${baseUrl(req)}/v1/auth/apple/callback`;
+    const prof = await oauth.appleExchange(redirectUri, String(req.body?.code ?? ''));
+    // Apple only sends the name on first consent (in `user` JSON).
+    let name = prof.name;
+    try { name = JSON.parse(req.body?.user || '{}')?.name?.firstName || name; } catch {}
+    const user = authSvc.upsertOAuth('apple', prof.sub, prof.email, name, prof.emailVerified);
+    oauthRedirect(req, res, authSvc.issueSession(user));
+  } catch (e) { oauthError(req, res, (e as Error).message); }
+});
 
 // =====================================================
 // §4.1 Domain Issuance + §4.2 Namespace Directory + Registrar

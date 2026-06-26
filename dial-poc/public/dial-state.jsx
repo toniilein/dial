@@ -68,10 +68,19 @@ const DIAL_INITIAL = {
 // ─────────────────────────────────────────────────────────────
 // Backend API helper
 // ─────────────────────────────────────────────────────────────
+// Real auth session token (issued at login). Sent as a Bearer header on every
+// call; the backend resolves it to the caller's owner_address.
+let sessionToken = null;
+try { sessionToken = localStorage.getItem('dial_session'); } catch {}
+function setSession(t) {
+  sessionToken = t || null;
+  try { if (t) localStorage.setItem('dial_session', t); else localStorage.removeItem('dial_session'); } catch {}
+}
+
 async function dialApi(method, path, opts) {
   opts = opts || {};
   const headers = Object.assign({}, opts.headers || {});
-  if (opts.caller) headers['x-owner-address'] = opts.caller;
+  if (sessionToken) headers['authorization'] = 'Bearer ' + sessionToken;
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
   const r = await fetch(path, {
     method,
@@ -88,6 +97,58 @@ async function dialApi(method, path, opts) {
     throw err;
   }
   return data;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Auth — real sign-in (manual / Google / Apple / demo accounts)
+// ─────────────────────────────────────────────────────────────
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
+// Demo personas keep their fixed org keys so demo behaviour is unchanged; real
+// users use their owner_address as the org key.
+const DEMO_ADDR_ORG = { '0xalice123': 'personal', '0xacme456': 'acme', '0xbob789': 'bob' };
+function accountFromUser(user) {
+  const addr = String(user.owner_address).toLowerCase();
+  const org = DEMO_ADDR_ORG[addr] || addr;
+  CALLER_ADDRESSES[org] = addr; // register so loadOrg's owner queries work
+  return { org, address: addr, name: user.name, provider: user.provider, email: user.email };
+}
+function applyLogin(dispatch, user, opts) {
+  dispatch({ type: 'login', account: accountFromUser(user),
+    keepRoute: !!(opts && opts.keepRoute), keepModal: !!(opts && opts.keepModal) });
+}
+async function authProviders() {
+  try { return await dialApi('GET', '/v1/auth/providers'); } catch { return { google: false, apple: false }; }
+}
+async function authRegister(dispatch, { email, password, name }, opts) {
+  const r = await dialApi('POST', '/v1/auth/register', { body: { email, password, name } });
+  setSession(r.token); applyLogin(dispatch, r.user, opts); return r.user;
+}
+async function authLogin(dispatch, { email, password }, opts) {
+  const r = await dialApi('POST', '/v1/auth/login', { body: { email, password } });
+  setSession(r.token); applyLogin(dispatch, r.user, opts); return r.user;
+}
+async function authDemo(dispatch, persona, opts) {
+  const r = await dialApi('POST', '/v1/auth/demo', { body: { persona } });
+  setSession(r.token); applyLogin(dispatch, r.user, opts); return r.user;
+}
+// Start an OAuth flow by navigating the browser to the provider.
+function authStartOAuth(provider) { window.location.assign('/v1/auth/' + provider + '/start'); }
+// On app load: capture an OAuth redirect token from the URL fragment, or
+// restore an existing session, then hydrate the account from /v1/auth/me.
+async function authBootstrap(dispatch) {
+  let err = null;
+  const m = window.location.hash.match(/(?:^|#|&)auth=([^&]+)/);
+  const e = window.location.hash.match(/(?:^|#|&)auth_error=([^&]+)/);
+  if (m) { setSession(decodeURIComponent(m[1])); history.replaceState(null, '', window.location.pathname + window.location.search); }
+  else if (e) { err = decodeURIComponent(e[1]); history.replaceState(null, '', window.location.pathname + window.location.search); }
+  if (err) dispatch({ type: 'toast', toast: { kind: 'info', text: 'Sign-in failed: ' + err } });
+  if (!sessionToken) return;
+  try { const { user } = await dialApi('GET', '/v1/auth/me'); applyLogin(dispatch, user, { keepRoute: true }); }
+  catch { setSession(null); } // stale/invalid token
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -184,20 +245,27 @@ function dialReducer(state, action) {
     case 'modal':   return { ...state, modal: action.modal };
     case 'toast':   return { ...state, toast: action.toast };
 
-    case 'login':
-      // Reset identity/names/domains so the new login starts unverified and
-      // empty. loadOrg() will then hydrate from the backend.
-      // `keepRoute` / `keepModal` let callers (e.g. checkout) stay in place.
+    case 'login': {
+      // `account` = { org, address, name, provider, email }. Demo personas use
+      // their existing org keys; real users use their owner_address as the org.
+      const acct = action.account;
+      const org = acct.org;
+      const baseIdentity = PERSONAS[org]
+        ? { verified: false, level: null, hash: null, fullHash: null, ...PERSONAS[org] }
+        : { verified: false, level: null, hash: null, fullHash: null, kind: 'consumer',
+            name: acct.name, email: acct.email || '', initials: initialsOf(acct.name) };
       return { ...state,
         loggedIn: true,
-        org: action.org,
+        org,
         route: action.keepRoute ? state.route : { screen: 'dashboard' },
         modal: action.keepModal ? state.modal : null,
-        identity: DIAL_INITIAL.identity,
-        names: DIAL_INITIAL.names,
-        domains: DIAL_INITIAL.domains,
-        toast: { kind: 'ok', text: 'Signed in as ' + PERSONAS[action.org].name + '.' } };
+        identity: { ...DIAL_INITIAL.identity, [org]: baseIdentity },
+        names: { ...DIAL_INITIAL.names, [org]: state.names[org] || [] },
+        domains: { ...DIAL_INITIAL.domains, [org]: state.domains[org] || [] },
+        toast: { kind: 'ok', text: 'Signed in as ' + acct.name + '.' } };
+    }
     case 'logout':
+      setSession(null); // drop the real auth token
       return { ...state,
         loggedIn: false,
         org: 'personal',
@@ -491,22 +559,6 @@ async function renewDomain(state, dispatch, domainStr, years) {
   dispatch({ type: 'toast', toast: { kind: 'ok', text: domainStr + ' renewed.' } });
 }
 
-// Fresh sign-up — releases any existing backend names/domains the persona
-// owns from a previous session so the registration lands in a clean slate.
-async function freshSignup(state, dispatch, org) {
-  const caller = CALLER_ADDRESSES[org];
-  try {
-    const [names, domains] = await Promise.all([
-      dialApi('GET', '/v1/registry?owner=' + encodeURIComponent(caller)),
-      dialApi('GET', '/v1/domains?owner=' + encodeURIComponent(caller)),
-    ]);
-    await Promise.all([
-      ...names.map(n   => dialApi('POST', '/v1/registrar/release',        { caller, body: { name:  n.name  } }).catch(() => {})),
-      ...domains.map(d => dialApi('POST', '/v1/registrar/domain/release', { caller, body: { label: d.label } }).catch(() => {})),
-    ]);
-  } catch {}
-  dispatch({ type: 'login', org, keepRoute: false, keepModal: false });
-}
 
 async function releaseDomain(state, dispatch, domainStr) {
   const caller = CALLER_ADDRESSES[state.org];
@@ -665,7 +717,6 @@ window.releaseDomainName    = releaseDomainName;
 window.updateDomainRecords  = updateDomainRecords;
 window.renewDomain          = renewDomain;
 window.releaseDomain        = releaseDomain;
-window.freshSignup          = freshSignup;
 window.fmtDate              = fmtDate;
 window.shortHash            = shortHash;
 window.dialCantonParty      = dialCantonParty;
@@ -686,3 +737,10 @@ window.sendModeAgent        = sendModeAgent;
 window.loadInbox            = loadInbox;
 window.loadInboxItem        = loadInboxItem;
 window.addEvmAddress        = addEvmAddress;
+window.authProviders        = authProviders;
+window.authRegister         = authRegister;
+window.authLogin            = authLogin;
+window.authDemo             = authDemo;
+window.authStartOAuth       = authStartOAuth;
+window.authBootstrap        = authBootstrap;
+window.initialsOf           = initialsOf;

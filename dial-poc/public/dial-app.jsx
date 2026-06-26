@@ -6,6 +6,9 @@ function DialApp() {
   const themeName = 'mono';
   const setThemeName = () => {};
 
+  // On load: capture an OAuth redirect token / restore an existing session.
+  React.useEffect(() => { authBootstrap(dispatch).catch(() => {}); }, []);
+
   // Toast auto-dismiss.
   React.useEffect(() => {
     if (!state.toast) return;
