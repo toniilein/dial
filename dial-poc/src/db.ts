@@ -175,3 +175,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS users_by_provider ON users(provider, provider_sub);
 `);
+
+// ── Additive migrations ──────────────────────────────────────────────────
+// `CREATE TABLE IF NOT EXISTS` never alters an existing table, so columns added
+// after a table first shipped must be backfilled for databases that predate
+// them (e.g. a deployed DB created before `users.verified` existed).
+function ensureColumn(table: string, column: string, ddl: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some(c => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn('users', 'verified', 'verified INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'verified_at', 'verified_at INTEGER');
