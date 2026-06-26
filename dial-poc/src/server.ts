@@ -206,9 +206,10 @@ app.post('/v1/auth/login', (req, res) => {
   catch (e) { res.status(401).json({ error: (e as Error).message }); }
 });
 
-// One-click demo accounts (David / Acme / Alice). Tied to seeded demo accounts
-// and disabled in production unless explicitly enabled.
-const DEMO_LOGIN = process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEMO_LOGIN === 'true';
+// One-click demo accounts (David / Acme / Alice) — part of the PoC, so enabled
+// by default (including on hosted deploys). Set ENABLE_DEMO_LOGIN=false to
+// turn them off for a real production launch.
+const DEMO_LOGIN = process.env.ENABLE_DEMO_LOGIN !== 'false';
 app.post('/v1/auth/demo', (req, res) => {
   if (!DEMO_LOGIN) return res.status(403).json({ error: 'demo login disabled' });
   const persona = String(req.body?.persona ?? '');

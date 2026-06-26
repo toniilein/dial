@@ -60,7 +60,8 @@ are disabled; email/password and demo accounts still work.
 production; Bearer-only auth (no spoofable header); HMAC session tokens with
 domain separation; constant-time login; per-IP login/register throttling;
 random (non-predictable) account addresses; OAuth issuer + verified-email
-checks; demo login auto-disabled in production.
+checks. Demo accounts (David / Acme / Alice) stay enabled by default — set
+`ENABLE_DEMO_LOGIN=false` to turn them off for a real production launch.
 
 **Deferred before a real production launch:** verify OAuth `id_token`
 signatures against provider JWKS (currently issuer+audience+expiry only, over
