@@ -265,6 +265,14 @@ app.post('/v1/auth/apple/callback', async (req, res) => {
   } catch (e) { oauthError(req, res, (e as Error).message); }
 });
 
+// Apple domain verification — serves the association file Apple checks when you
+// register the Services ID domain. Set APPLE_DOMAIN_ASSOCIATION to the content
+// Apple gives you (kept in env, not the repo). 404s until configured.
+app.get('/.well-known/apple-developer-domain-association.txt', (_req, res) => {
+  if (!process.env.APPLE_DOMAIN_ASSOCIATION) return res.status(404).end();
+  res.type('text/plain').send(process.env.APPLE_DOMAIN_ASSOCIATION);
+});
+
 // =====================================================
 // §4.1 Domain Issuance + §4.2 Namespace Directory + Registrar
 // =====================================================
