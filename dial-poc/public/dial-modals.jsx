@@ -1402,7 +1402,7 @@ function CheckoutFlow() {
       </div>}
 
       {step === 0 && <CheckoutReview items={items} verified={verified} subtotal={subtotal} total={total} discount={discount} skipVerify={false} />}
-      {step === 1 && <CheckoutAccount onSignIn={onSignIn} />}
+      {step === 1 && <CheckoutAccount onDone={next} />}
       {step === 2 && <CheckoutPay items={items} verified={verified} subtotal={subtotal} total={total} discount={discount} networkFee={networkFee} grandTotal={grandTotal} />}
       {step === 3 && <CheckoutDone registered={registered} />}
     </DialModalFrame>
@@ -1454,7 +1454,7 @@ function CheckoutReview({ items, verified, subtotal, total, discount, skipVerify
   );
 }
 
-function CheckoutAccount({ onSignIn }) {
+function CheckoutAccount({ onDone }) {
   const { state, dispatch } = useDial();
   // Step 2 is sign-in only. Creating an account is its own flow surfaced
   // from the top-bar "Create account" button outside checkout.
@@ -1512,7 +1512,7 @@ function CheckoutAccount({ onSignIn }) {
 
   return (
     <div>
-      <AuthPanel onClose={next} opts={{ keepRoute: true, keepModal: true }} />
+      <AuthPanel onClose={onDone} opts={{ keepRoute: true, keepModal: true }} />
     </div>
   );
 }

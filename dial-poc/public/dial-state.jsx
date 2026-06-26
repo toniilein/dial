@@ -417,7 +417,7 @@ async function loadOrg(state, dispatch, org) {
   if (att) {
     dispatch({ type: 'set-identity', org, patch: {
       verified: true,
-      level: PERSONAS[org].fallbackLevel,
+      level: (PERSONAS[org] && PERSONAS[org].fallbackLevel) || 'Verified',
       hash: shortHash(att),
       fullHash: att,
     }});
@@ -429,11 +429,12 @@ const fetchOrgNames = loadOrg;
 
 async function verifyIdentity(state, dispatch, org) {
   const subject = CALLER_ADDRESSES[org];
-  const kind = PERSONAS[org].kind;
+  const idn = state.identity[org] || {};
+  const kind = (PERSONAS[org] && PERSONAS[org].kind) || idn.kind || 'consumer';
   const r = await dialApi('POST', '/v1/idh/verify', { caller: subject, body: { subject, kind } });
   dispatch({ type: 'set-identity', org, patch: {
     verified: true,
-    level: PERSONAS[org].fallbackLevel,
+    level: (PERSONAS[org] && PERSONAS[org].fallbackLevel) || 'Consumer · Verified',
     hash: shortHash(r.hash),
     fullHash: r.hash,
   }});
