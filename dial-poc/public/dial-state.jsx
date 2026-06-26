@@ -115,7 +115,7 @@ function accountFromUser(user) {
   const org = DEMO_ADDR_ORG[addr] || addr;
   CALLER_ADDRESSES[org] = addr; // register so loadOrg's owner queries work
   return { org, address: addr, name: user.name, provider: user.provider, email: user.email,
-    verified: !!user.verified, isAdmin: !!user.is_admin };
+    verified: !!user.verified };
 }
 function applyLogin(dispatch, user, opts) {
   dispatch({ type: 'login', account: accountFromUser(user),
@@ -138,12 +138,27 @@ async function authDemo(dispatch, persona, opts) {
 }
 // Start an OAuth flow by navigating the browser to the provider.
 function authStartOAuth(provider) { window.location.assign('/v1/auth/' + provider + '/start'); }
-// Admin: list + verify users.
+// Admin panel — its own username/password login (independent of user sign-in),
+// stored as a short-lived token in sessionStorage and sent as x-admin-token.
+let adminToken = null;
+try { adminToken = sessionStorage.getItem('dial_admin_token'); } catch {}
+function hasAdminToken() { return !!adminToken; }
+function setAdminToken(t) {
+  adminToken = t || null;
+  try { if (t) sessionStorage.setItem('dial_admin_token', t); else sessionStorage.removeItem('dial_admin_token'); } catch {}
+}
+async function adminLogin(username, password) {
+  const r = await dialApi('POST', '/v1/admin/login', { body: { username, password } });
+  setAdminToken(r.token);
+  return true;
+}
+function adminLogout() { setAdminToken(null); }
 async function loadAdminUsers() {
-  return (await dialApi('GET', '/v1/admin/users')).users;
+  return (await dialApi('GET', '/v1/admin/users', { headers: { 'x-admin-token': adminToken } })).users;
 }
 async function adminSetVerified(id, verified) {
-  return (await dialApi('POST', '/v1/admin/users/' + encodeURIComponent(id) + '/verify', { body: { verified } })).user;
+  return (await dialApi('POST', '/v1/admin/users/' + encodeURIComponent(id) + '/verify',
+    { headers: { 'x-admin-token': adminToken }, body: { verified } })).user;
 }
 // On app load: capture an OAuth redirect token from the URL fragment, or
 // restore an existing session, then hydrate the account from /v1/auth/me.
@@ -262,9 +277,8 @@ function dialReducer(state, action) {
         ? { verified: false, level: null, hash: null, fullHash: null, ...PERSONAS[org] }
         : { verified: false, level: null, hash: null, fullHash: null, kind: 'consumer',
             name: acct.name, email: acct.email || '', initials: initialsOf(acct.name) };
-      // Real verification + admin come from the account (admin-controlled).
+      // Real verification comes from the account (admin-controlled).
       baseIdentity.verified = !!acct.verified;
-      baseIdentity.is_admin = !!acct.isAdmin;
       if (acct.verified && !baseIdentity.level) baseIdentity.level = 'Verified';
       return { ...state,
         loggedIn: true,
@@ -759,3 +773,6 @@ window.authBootstrap        = authBootstrap;
 window.initialsOf           = initialsOf;
 window.loadAdminUsers       = loadAdminUsers;
 window.adminSetVerified     = adminSetVerified;
+window.adminLogin           = adminLogin;
+window.adminLogout          = adminLogout;
+window.hasAdminToken        = hasAdminToken;

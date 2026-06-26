@@ -49,7 +49,7 @@ as Replit **Secrets** to enable the rest:
 | Secret | Needed for | Notes |
 |--------|-----------|-------|
 | `SESSION_SECRET` | all sign-in | A long random string. Sessions are signed with it; set it in production. |
-| `ADMIN_EMAILS` | Admin tab | Comma-separated emails who get the **Admin** tab (list + verify users). In production, set this to your email — demo accounts are admins only in development, not on the live deploy. |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Admin panel | Credentials for the **Admin** panel (list + verify users), reachable at the Admin nav even when logged out. Defaults are in the repo (public) — **override both** with your own values in production. |
 | `OAUTH_BASE_URL` | Google/Apple | Your public URL, e.g. `https://your-app.replit.app`. Used to build the OAuth redirect URIs (Replit's internal host can differ). |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google | Create an OAuth 2.0 Client (Web) in Google Cloud Console. Authorized redirect URI: `<OAUTH_BASE_URL>/v1/auth/google/callback`. |
 | `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Apple | From your Apple Developer account (a Services ID + a Sign-in-with-Apple key). Return URL: `<OAUTH_BASE_URL>/v1/auth/apple/callback`. `APPLE_PRIVATE_KEY` is the `.p8` contents. |

@@ -20,14 +20,31 @@ export type User = {
   created_at: number;
 };
 
-// Admins are listed in ADMIN_EMAILS (comma-separated). For local convenience,
-// demo accounts are also admins in development — but NOT in production, where
-// you must set ADMIN_EMAILS explicitly (so demo login can't grant admin live).
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
-export function isAdmin(user: User | null): boolean {
-  if (!user) return false;
-  if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) return true;
-  return user.provider === 'demo' && process.env.NODE_ENV !== 'production';
+// Admin panel — gated by a username + password (its own login, independent of
+// user accounts and reachable when logged out). Override the defaults with
+// ADMIN_USERNAME / ADMIN_PASSWORD env vars in production (the repo defaults are
+// public). A successful login mints a short-lived signed admin token.
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'lionscraft';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Lionscraft84!';
+const ADMIN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a), bb = Buffer.from(b);
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
+export function adminLogin(username: string, password: string): string | null {
+  if (!safeEqual(username || '', ADMIN_USERNAME) || !safeEqual(password || '', ADMIN_PASSWORD)) return null;
+  const body = Buffer.from(JSON.stringify({ admin: true, exp: Date.now() + ADMIN_TTL_MS })).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update('admin:' + body).digest('base64url');
+  return `${body}.${sig}`;
+}
+export function verifyAdminToken(token: string | undefined | null): boolean {
+  if (!token || token.indexOf('.') < 0) return false;
+  const [body, sig] = token.split('.');
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update('admin:' + body).digest('base64url');
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return false;
+  try { const p = JSON.parse(Buffer.from(body, 'base64url').toString()); return !!p.admin && p.exp > Date.now(); }
+  catch { return false; }
 }
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
@@ -194,7 +211,7 @@ export function getDemoUser(persona: string): User | null {
 export function publicUser(u: User) {
   return {
     id: u.id, email: u.email, provider: u.provider, name: u.display_name,
-    owner_address: u.owner_address, verified: !!u.verified, is_admin: isAdmin(u),
+    owner_address: u.owner_address, verified: !!u.verified,
   };
 }
 // Admin view of a user (a little more detail for the table).

@@ -34,9 +34,10 @@ function DialApp() {
   // Routes that require an authenticated user. Falls back to home if hit
   // while logged out (e.g. after logout while on dashboard). Cart is open
   // to anyone — you fill the basket first and sign in at checkout.
-  const isProtected = ['dashboard', 'name', 'domain', 'inbox', 'conversation', 'admin'].includes(state.route.screen);
+  // 'admin' is intentionally NOT protected — it has its own password login and
+  // is reachable when logged out.
+  const isProtected = ['dashboard', 'name', 'domain', 'inbox', 'conversation'].includes(state.route.screen);
   const showHome = state.route.screen === 'home' || (isProtected && !state.loggedIn);
-  const isAdmin = state.loggedIn && state.identity[state.org] && state.identity[state.org].is_admin;
 
   return (
     <DialCtx.Provider value={ctx}>
@@ -49,10 +50,7 @@ function DialApp() {
           {state.route.screen === 'domain'       && state.loggedIn && <ScreenDomainDetail />}
           {state.route.screen === 'inbox'        && state.loggedIn && <ScreenInbox />}
           {state.route.screen === 'conversation' && state.loggedIn && <ScreenConversation />}
-          {state.route.screen === 'admin'        && isAdmin && <ScreenAdmin />}
-          {state.route.screen === 'admin'        && state.loggedIn && !isAdmin && (
-            <div className="dial-section"><div className="dial-card" style={{ padding: 24 }}>Admin access only.</div></div>
-          )}
+          {state.route.screen === 'admin'        && <ScreenAdmin />}
           {state.route.screen === 'public'       && <ScreenPublic />}
           {state.route.screen === 'cart'         && <ScreenCart />}
         </div>

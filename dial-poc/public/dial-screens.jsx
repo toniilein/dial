@@ -69,9 +69,7 @@ function DialTopBar() {
         {loggedIn && (
           <button className={`dial-nav-item ${active === 'inbox' || active === 'conversation' ? 'active' : ''}`} onClick={onNav('inbox')}>Inbox</button>
         )}
-        {loggedIn && id && id.is_admin && (
-          <button className={`dial-nav-item ${active === 'admin' ? 'active' : ''}`} onClick={onNav('admin')}>Admin</button>
-        )}
+        <button className={`dial-nav-item ${active === 'admin' ? 'active' : ''}`} onClick={onNav('admin')}>Admin</button>
         <button className="dial-nav-item" onClick={() => dispatch({ type: 'toast', toast: { kind: 'info', text: 'Developer docs are out of scope for this demo.' } })}>Developers</button>
       </div>
 
@@ -1813,15 +1811,12 @@ function ScreenPublic() {
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: PUB.red, color: '#fff',
                   fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em', borderRadius: 999, padding: '9px 14px' }}>● Receptionist on duty</span>
               )}
-              {page.owner_verified
-                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#d8cfbf', fontFamily: PUB.mono,
-                    fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#7fe0a3' }} />Pairpoint-verified
-                  </span>
-                : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#8b8377', fontFamily: PUB.mono,
-                    fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#8b8377' }} />Unverified
-                  </span>}
+              {page.owner_verified && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#d8cfbf', fontFamily: PUB.mono,
+                  fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#7fe0a3' }} />Pairpoint-verified
+                </span>
+              )}
             </div>
 
             {links.length > 0 && (
@@ -2008,53 +2003,96 @@ function VisitorChat({ name, receptionist }) {
 // ─────────────────────────────────────────────────────────────
 function ScreenAdmin() {
   const { dispatch } = useDial();
+  const [authed, setAuthed] = React.useState(hasAdminToken());
   const [users, setUsers] = React.useState(null);
   const [busy, setBusy] = React.useState(null);
+  // admin login form
+  const [u, setU] = React.useState('');
+  const [pw, setPw] = React.useState('');
+  const [loginBusy, setLoginBusy] = React.useState(false);
+  const [error, setError] = React.useState(null);
 
   React.useEffect(() => {
+    if (!authed) return;
     let c = false;
-    loadAdminUsers().then(u => { if (!c) setUsers(u); })
-      .catch(e => { if (!c) { setUsers([]); dispatch({ type: 'toast', toast: { kind: 'info', text: 'Could not load users: ' + e.message } }); } });
+    loadAdminUsers().then(list => { if (!c) setUsers(list); })
+      .catch(e => { if (!c) { if (/auth|401/i.test(e.message)) { adminLogout(); setAuthed(false); } setUsers([]); } });
     return () => { c = true; };
-  }, []);
+  }, [authed]);
 
-  const toggle = async (u) => {
-    setBusy(u.id);
-    try { const up = await adminSetVerified(u.id, !u.verified); setUsers(list => list.map(x => x.id === u.id ? up : x)); }
+  const doLogin = async (e) => {
+    e && e.preventDefault && e.preventDefault();
+    setError(null); setLoginBusy(true);
+    try { await adminLogin(u.trim(), pw); setUsers(null); setAuthed(true); }
+    catch (err) { setError(/invalid admin/i.test(err.message) ? 'Incorrect username or password.' : err.message); }
+    finally { setLoginBusy(false); }
+  };
+  const signOut = () => { adminLogout(); setAuthed(false); setUsers(null); setU(''); setPw(''); };
+  const toggle = async (user) => {
+    setBusy(user.id);
+    try { const up = await adminSetVerified(user.id, !user.verified); setUsers(list => list.map(x => x.id === user.id ? up : x)); }
     catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
     finally { setBusy(null); }
   };
 
+  // ── password gate ──
+  if (!authed) {
+    return (
+      <div className="dial-section" style={{ maxWidth: 400 }}>
+        <div className="dial-eyebrow accent">Admin</div>
+        <h1 className="dial-h1" style={{ fontSize: 28, margin: '2px 0 4px' }}>Admin sign in</h1>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 16 }}>Restricted area — enter the admin credentials.</div>
+        {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+          color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>{error}</div>}
+        <form onSubmit={doLogin} className="dial-card" style={{ padding: 16 }} autoComplete="off">
+          <div style={{ marginBottom: 12 }}>
+            <div className="dial-field-label">Username</div>
+            <div className="dial-input-wrap"><input value={u} onChange={e => setU(e.target.value)} placeholder="username" autoFocus /></div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <div className="dial-field-label">Password</div>
+            <div className="dial-input-wrap"><input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" /></div>
+          </div>
+          <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }} disabled={loginBusy}>
+            {loginBusy ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   if (!users) return <div className="dial-section"><div className="dial-muted">Loading users…</div></div>;
-  const verifiedCount = users.filter(u => u.verified).length;
+  const verifiedCount = users.filter(x => x.verified).length;
 
   return (
     <div className="dial-section" style={{ maxWidth: 860 }}>
-      <div className="dial-eyebrow accent">Admin</div>
-      <h1 className="dial-h1" style={{ fontSize: 30, margin: '2px 0 2px' }}>Users</h1>
-      <div className="dial-muted" style={{ fontSize: 13, marginBottom: 18 }}>
-        {users.length} account{users.length === 1 ? '' : 's'} · {verifiedCount} verified. Verify an identity to grant the verified badge and discount.
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <div className="dial-eyebrow accent">Admin</div>
+          <h1 className="dial-h1" style={{ fontSize: 30, margin: '2px 0 2px' }}>Users</h1>
+          <div className="dial-muted" style={{ fontSize: 13, marginBottom: 18 }}>
+            {users.length} account{users.length === 1 ? '' : 's'} · {verifiedCount} verified. Verify an identity to grant the verified badge and discount.
+          </div>
+        </div>
+        <button className="dial-btn ghost sm" onClick={signOut}>Sign out</button>
       </div>
       <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-        {users.map((u, i) => (
-          <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+        {users.map((user, i) => (
+          <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
             borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-            <div className="dial-avatar" style={{ width: 34, height: 34, fontSize: 12, flexShrink: 0 }}>{initialsOf(u.name)}</div>
+            <div className="dial-avatar" style={{ width: 34, height: 34, fontSize: 12, flexShrink: 0 }}>{initialsOf(user.name)}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                {u.name}
-                {u.is_admin && <span className="dial-pill" style={{ fontSize: 9 }}>admin</span>}
-              </div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{user.name}</div>
               <div className="dial-muted" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {u.email || '—'} · {u.provider} · <code className="dial-mono" style={{ fontSize: 11 }}>{u.owner_address.slice(0, 12)}…</code>
+                {user.email || '—'} · {user.provider} · <code className="dial-mono" style={{ fontSize: 11 }}>{user.owner_address.slice(0, 12)}…</code>
               </div>
             </div>
-            {u.verified
+            {user.verified
               ? <span className="dial-pill ok" style={{ fontSize: 10 }}>Verified</span>
               : <span className="dial-pill warn" style={{ fontSize: 10 }}>Unverified</span>}
-            <button className="dial-btn sm" disabled={busy === u.id} onClick={() => toggle(u)}
-              style={u.verified ? {} : { borderColor: 'var(--dial-accent)', color: 'var(--dial-accent)', fontWeight: 600 }}>
-              {busy === u.id ? '…' : (u.verified ? 'Unverify' : 'Verify')}
+            <button className="dial-btn sm" disabled={busy === user.id} onClick={() => toggle(user)}
+              style={user.verified ? {} : { borderColor: 'var(--dial-accent)', color: 'var(--dial-accent)', fontWeight: 600 }}>
+              {busy === user.id ? '…' : (user.verified ? 'Unverify' : 'Verify')}
             </button>
           </div>
         ))}

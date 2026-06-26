@@ -159,12 +159,14 @@ function requireCaller(req: Request, res: Response): string | null {
   return c;
 }
 
-function requireAdmin(req: Request, res: Response): authSvc.User | null {
-  const c = requireCaller(req, res);
-  if (!c) return null;
-  const u = authSvc.getByAddress(c);
-  if (!u || !authSvc.isAdmin(u)) { res.status(403).json({ error: 'admin only' }); return null; }
-  return u;
+// Admin panel auth — a username/password login (independent of user accounts),
+// verified via a short-lived admin token sent as x-admin-token.
+function requireAdminToken(req: Request, res: Response): boolean {
+  if (!authSvc.verifyAdminToken(req.header('x-admin-token'))) {
+    res.status(401).json({ error: 'admin authentication required' });
+    return false;
+  }
+  return true;
 }
 
 // =====================================================
@@ -237,13 +239,19 @@ app.get('/v1/auth/me', (req, res) => {
 
 app.post('/v1/auth/logout', (_req, res) => res.json({ ok: true })); // stateless: client drops the token
 
-// ── Admin — list users + verify their identity ──
+// ── Admin — username/password login, then list + verify users ──
+app.post('/v1/admin/login', (req, res) => {
+  if (authThrottled(req, res)) return;
+  const token = authSvc.adminLogin(String(req.body?.username ?? ''), String(req.body?.password ?? ''));
+  if (!token) return res.status(401).json({ error: 'invalid admin credentials' });
+  res.json({ token });
+});
 app.get('/v1/admin/users', (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireAdminToken(req, res)) return;
   res.json({ users: authSvc.listUsers().map(authSvc.adminUser) });
 });
 app.post('/v1/admin/users/:id/verify', (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireAdminToken(req, res)) return;
   const u = authSvc.setVerified(req.params.id, req.body?.verified !== false);
   if (!u) return res.status(404).json({ error: 'user not found' });
   res.json({ user: authSvc.adminUser(u) });
