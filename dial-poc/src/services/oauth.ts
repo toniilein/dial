@@ -77,6 +77,28 @@ export async function googleExchange(redirectUri: string, code: string): Promise
 export function appleConfigured(): boolean {
   return !!(process.env.APPLE_CLIENT_ID && process.env.APPLE_TEAM_ID && process.env.APPLE_KEY_ID && process.env.APPLE_PRIVATE_KEY);
 }
+// Robustly resolve the Apple .p8 key from the env var, which survives many
+// mangled forms: real-PEM, \n-escaped PEM, PEM whose newlines got turned into
+// spaces, or a base64-encoded .p8 (recommended — a single safe line).
+function applePrivateKey(): crypto.KeyObject {
+  let k = (process.env.APPLE_PRIVATE_KEY || '').trim();
+  // Base64-encoded .p8 (no PEM header) → decode.
+  if (!/-----BEGIN/.test(k)) {
+    try {
+      const decoded = Buffer.from(k.replace(/\s+/g, ''), 'base64').toString('utf8');
+      if (/-----BEGIN/.test(decoded)) k = decoded;
+    } catch { /* fall through */ }
+  }
+  k = k.replace(/\\n/g, '\n').replace(/\r/g, '');
+  // Repair PEM whose body newlines were collapsed to spaces.
+  const m = k.match(/-----BEGIN ([A-Z ]+)-----([\s\S]*?)-----END \1-----/);
+  if (m) {
+    const body = m[2].replace(/\s+/g, '').replace(/(.{64})/g, '$1\n').trim();
+    k = `-----BEGIN ${m[1]}-----\n${body}\n-----END ${m[1]}-----\n`;
+  }
+  return crypto.createPrivateKey(k);
+}
+
 function appleClientSecret(): string {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'ES256', kid: process.env.APPLE_KEY_ID, typ: 'JWT' }));
@@ -85,8 +107,7 @@ function appleClientSecret(): string {
     aud: 'https://appleid.apple.com', sub: process.env.APPLE_CLIENT_ID,
   }));
   const signingInput = `${header}.${payload}`;
-  const pem = (process.env.APPLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const sig = crypto.createSign('SHA256').update(signingInput).end().sign({ key: pem, dsaEncoding: 'ieee-p1363' });
+  const sig = crypto.createSign('SHA256').update(signingInput).end().sign({ key: applePrivateKey(), dsaEncoding: 'ieee-p1363' });
   return `${signingInput}.${b64url(sig)}`;
 }
 export function appleAuthUrl(redirectUri: string, state: string): string {
