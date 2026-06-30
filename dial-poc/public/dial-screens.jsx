@@ -1917,13 +1917,17 @@ function NameReceptionist({ name }) {
 // but the 0x + 40-hex shape is validated client- and server-side.
 function EvmEditor({ name }) {
   const { state, dispatch } = useDial();
-  const current = name.records['eip155:1'] || '';
+  const propAddr = name.records['eip155:1'] || '';
+  // Optimistic: shown immediately after a successful on-chain write, before the
+  // org refresh round-trips. Cleared when the prop catches up.
+  const [savedAddr, setSavedAddr] = React.useState('');
+  const current = savedAddr || propAddr;
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState(current);
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState(null);
   const [nft, setNft] = React.useState(null); // minted name NFT (for the Etherscan link)
-  React.useEffect(() => { setValue(current); setErr(null); }, [current]);
+  React.useEffect(() => { setValue(propAddr); setErr(null); if (propAddr) setSavedAddr(''); }, [propAddr]);
   React.useEffect(() => {
     let c = false;
     dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name))
@@ -1955,13 +1959,19 @@ function EvmEditor({ name }) {
     setErr(null); setSaving(true);
     try {
       await selfCustodyOnchain(dispatch, name.name, value);
-      await dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name))
-        .then(r => { if (r && r.nft && r.explorerBase) setNft({ ...r.nft, explorerBase: r.explorerBase }); })
-        .catch(() => {});
-      await fetchOrgNames(state, dispatch, state.org); // refresh the record
+      setSavedAddr(value); // show it right away (the flow only resolves once the address is confirmed on-chain)
       setOpen(false);
     } catch (e) { setErr(e.message || String(e)); }
-    finally { setSaving(false); }
+    finally {
+      // Always refresh — even on a partial flow (e.g. address set but mint slow),
+      // reflect whatever is now persisted, and pick up the minted NFT link.
+      try {
+        await fetchOrgNames(state, dispatch, state.org);
+        const r = await dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name));
+        if (r && r.nft && r.explorerBase) setNft({ ...r.nft, explorerBase: r.explorerBase });
+      } catch {}
+      setSaving(false);
+    }
   };
 
   if (current && !open) {
