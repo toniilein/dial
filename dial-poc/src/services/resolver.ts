@@ -75,9 +75,14 @@ export function removeText(caller: string, name: string, key: string): void {
   bus.publish({ type: 'resolver.changed', name, key: `text.${key}`, value: '' });
 }
 
-// §3.3 Reverse resolution behind a privacy gate.
-// PoC: just look up by exact address value across chains.
-export function reverse(address: string): string | null {
-  const row = db.prepare(`SELECT name FROM resolver_records WHERE key LIKE 'addr.%' AND value = ? LIMIT 1`).get(address) as { name: string } | undefined;
-  return row?.name ?? null;
+export function removeAddr(caller: string, name: string, chainId: string): void {
+  const owner = registry.ownerOf(name);
+  if (!owner) throw new Error('namespace not found');
+  if (owner.toLowerCase() !== caller.toLowerCase()) throw new Error('not owner');
+  db.prepare(`DELETE FROM resolver_records WHERE name = ? AND key = ?`).run(name, `addr.${chainId}`);
+  bus.publish({ type: 'resolver.changed', name, key: `addr.${chainId}`, value: '' });
 }
+
+// §3.3 Reverse resolution (address→name) is intentionally NOT here: a raw record
+// match would trust owner-set `addr.*` records whose proof-of-control is mocked.
+// Use dialresolver.reverse(), which keys off the SIWE-proven binding instead.

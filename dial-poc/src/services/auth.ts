@@ -17,6 +17,13 @@ export type User = {
   owner_address: string;
   verified: number;
   verified_at: number | null;
+  addr_line1: string | null;   // user-editable postal/billing address
+  addr_city: string | null;
+  addr_country: string | null;
+  wallet_address: string | null;   // linked Ethereum wallet (SIWE-verified)
+  wallet_name: string | null;      // the DIAL name bound to this wallet (DIAL-native, no ENS)
+  wallet_avatar: string | null;    // the bound name's avatar (resolver text.avatar), if any
+  wallet_linked_at: number | null;
   created_at: number;
 };
 
@@ -112,6 +119,45 @@ export function verifySession(token: string | undefined | null): { uid: string; 
   } catch { return null; }
 }
 
+// ── password reset (stateless, HMAC-signed) ──
+// No mailer in the PoC, so the reset link is returned by the API and (in dev)
+// shown in the UI — production would email it instead. The token signs the
+// user's *current* password_hash, so it self-invalidates the moment the
+// password changes (single-use) and can't be reused or forged after a reset.
+const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
+function resetSig(body: string, pwHash: string): string {
+  return b64url(crypto.createHmac('sha256', SESSION_SECRET).update('reset:' + body + ':' + pwHash).digest());
+}
+export function createResetToken(user: User): string {
+  const body = b64url(JSON.stringify({ uid: user.id, exp: Date.now() + RESET_TTL_MS }));
+  return `${body}.${resetSig(body, user.password_hash || '')}`;
+}
+// Look up a manual account by email and mint a reset token. Returns null when
+// there's no resettable account (no such email, or a social/demo account with
+// no password) — the caller responds generically either way to avoid leaking
+// which emails are registered.
+export function requestPasswordReset(email: string): { user: User; token: string } | null {
+  const u = getByEmail(email.trim().toLowerCase());
+  if (!u || u.provider !== 'manual' || !u.password_hash) return null;
+  return { user: u, token: createResetToken(u) };
+}
+export function resetPassword(token: string, newPassword: string): User {
+  if (!newPassword || newPassword.length < 8) throw new Error('password must be at least 8 characters');
+  if (!token || token.indexOf('.') < 0) throw new Error('invalid or expired reset link');
+  const [body, sig] = token.split('.');
+  let payload: { uid?: string; exp?: number };
+  try { payload = JSON.parse(b64urlDecode(body).toString()); } catch { throw new Error('invalid or expired reset link'); }
+  if (!payload.exp || Date.now() > payload.exp) throw new Error('this reset link has expired — request a new one');
+  const u = payload.uid ? getById(payload.uid) : null;
+  if (!u || u.provider !== 'manual') throw new Error('invalid or expired reset link');
+  const expected = resetSig(body, u.password_hash || '');
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    throw new Error('invalid or expired reset link');
+  }
+  db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(newPassword), u.id);
+  return getById(u.id)!;
+}
+
 // ── user store ──
 export function getById(id: string): User | null {
   return (db.prepare(`SELECT * FROM users WHERE id = ?`).get(id) as User) ?? null;
@@ -125,14 +171,57 @@ export function getByProvider(provider: string, sub: string): User | null {
 export function getByAddress(address: string): User | null {
   return (db.prepare(`SELECT * FROM users WHERE owner_address = ?`).get(address.toLowerCase()) as User) ?? null;
 }
+// Linked-wallet lookup is case-insensitive (we store the EIP-55 checksum form
+// for display, but a wallet identifies the same account regardless of casing).
+export function getByWallet(walletAddress: string): User | null {
+  return (db.prepare(`SELECT * FROM users WHERE wallet_address = ? COLLATE NOCASE`).get(walletAddress) as User) ?? null;
+}
 
-function insert(u: Omit<User, 'created_at' | 'verified' | 'verified_at'>): User {
-  const row: User = { ...u, verified: 0, verified_at: null, created_at: Date.now() };
+function insert(u: Omit<User, 'created_at' | 'verified' | 'verified_at' | 'addr_line1' | 'addr_city' | 'addr_country'>
+  & Partial<Pick<User, 'addr_line1' | 'addr_city' | 'addr_country'>>): User {
+  const row: User = {
+    ...u, verified: 0, verified_at: null,
+    addr_line1: u.addr_line1 ?? null, addr_city: u.addr_city ?? null, addr_country: u.addr_country ?? null,
+    wallet_address: null, wallet_name: null, wallet_avatar: null, wallet_linked_at: null,
+    created_at: Date.now(),
+  };
   db.prepare(`
-    INSERT INTO users (id, email, provider, provider_sub, password_hash, display_name, owner_address, created_at)
-    VALUES (@id, @email, @provider, @provider_sub, @password_hash, @display_name, @owner_address, @created_at)
+    INSERT INTO users (id, email, provider, provider_sub, password_hash, display_name, owner_address,
+                       addr_line1, addr_city, addr_country, created_at)
+    VALUES (@id, @email, @provider, @provider_sub, @password_hash, @display_name, @owner_address,
+            @addr_line1, @addr_city, @addr_country, @created_at)
   `).run(row);
   return row;
+}
+
+// ── editable profile (postal/billing address) ──
+// Trim + cap each field; an empty string clears it back to null.
+function clean(v: unknown): string | null {
+  const s = String(v ?? '').trim().slice(0, 200);
+  return s.length ? s : null;
+}
+export function updateProfile(id: string, patch: { line1?: unknown; city?: unknown; country?: unknown }): User | null {
+  const u = getById(id);
+  if (!u) return null;
+  db.prepare(`UPDATE users SET addr_line1 = ?, addr_city = ?, addr_country = ? WHERE id = ?`)
+    .run(clean(patch.line1), clean(patch.city), clean(patch.country), id);
+  return getById(id);
+}
+
+// ── linked Ethereum wallet (Sign-In-With-Ethereum) ──
+// Bind a SIWE-verified wallet (and its DIAL-native name/avatar) to an account.
+export function setWallet(id: string, w: { address: string; name: string | null; avatar: string | null }): User | null {
+  const u = getById(id);
+  if (!u) return null;
+  db.prepare(`UPDATE users SET wallet_address = ?, wallet_name = ?, wallet_avatar = ?, wallet_linked_at = ? WHERE id = ?`)
+    .run(w.address, w.name ?? null, w.avatar ?? null, Date.now(), id);
+  return getById(id);
+}
+export function clearWallet(id: string): User | null {
+  const u = getById(id);
+  if (!u) return null;
+  db.prepare(`UPDATE users SET wallet_address = NULL, wallet_name = NULL, wallet_avatar = NULL, wallet_linked_at = NULL WHERE id = ?`).run(id);
+  return getById(id);
 }
 
 // ── admin ──
@@ -194,7 +283,9 @@ export function upsertOAuth(provider: 'google' | 'apple', sub: string, email: st
 }
 
 // Seed a fixed demo-persona account (keeps the one-click demo login working).
-export function ensureDemoUser(persona: string, displayName: string, ownerAddress: string): User {
+// An optional address pre-fills the editable account details for the demo.
+export function ensureDemoUser(persona: string, displayName: string, ownerAddress: string,
+  address?: { line1: string; city: string; country: string }): User {
   const existing = getByProvider('demo', persona);
   if (existing) return existing;
   return insert({
@@ -202,16 +293,28 @@ export function ensureDemoUser(persona: string, displayName: string, ownerAddres
     email: `${persona}@demo.dial`,
     provider: 'demo', provider_sub: persona, password_hash: null,
     display_name: displayName, owner_address: ownerAddress.toLowerCase(),
+    addr_line1: address?.line1 ?? null, addr_city: address?.city ?? null, addr_country: address?.country ?? null,
   });
 }
 export function getDemoUser(persona: string): User | null {
   return getByProvider('demo', persona);
 }
 
+// The editable address as a nested object (null when nothing's been set yet).
+function publicAddress(u: User) {
+  if (!u.addr_line1 && !u.addr_city && !u.addr_country) return null;
+  return { line1: u.addr_line1 || '', city: u.addr_city || '', country: u.addr_country || '' };
+}
+// The linked wallet as a nested object (null when none is linked).
+function publicWallet(u: User) {
+  if (!u.wallet_address) return null;
+  return { address: u.wallet_address, name: u.wallet_name, avatar: u.wallet_avatar, linked_at: u.wallet_linked_at };
+}
 export function publicUser(u: User) {
   return {
     id: u.id, email: u.email, provider: u.provider, name: u.display_name,
-    owner_address: u.owner_address, verified: !!u.verified,
+    owner_address: u.owner_address, verified: !!u.verified, address: publicAddress(u),
+    wallet: publicWallet(u),
   };
 }
 // Admin view of a user (a little more detail for the table).

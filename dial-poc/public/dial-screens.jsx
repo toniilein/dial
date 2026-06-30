@@ -3,7 +3,7 @@
 
 const { Search, ArrowR, ArrowL, Check, CheckCircle, X, Plus, Edit, Copy, External,
   Shield, User, Building, Wallet, Globe, Hash, Chevron, ChevronDown, Bell,
-  Wand, Refresh, Code, Dollar, Calendar, Spinner, Cart, Trash2 } = window.DialIcons;
+  Wand, Refresh, Code, Dollar, Calendar, Spinner, Cart, Trash2, Chain } = window.DialIcons;
 
 // ─────────────────────────────────────────────────────────────
 // TopBar — brand, nav, search, persona, theme switcher, avatar
@@ -70,7 +70,7 @@ function DialTopBar() {
           <button className={`dial-nav-item ${active === 'inbox' || active === 'conversation' ? 'active' : ''}`} onClick={onNav('inbox')}>Inbox</button>
         )}
         <button className={`dial-nav-item ${active === 'admin' ? 'active' : ''}`} onClick={onNav('admin')}>Admin</button>
-        <button className="dial-nav-item" onClick={() => dispatch({ type: 'toast', toast: { kind: 'info', text: 'Developer docs are out of scope for this demo.' } })}>Developers</button>
+        <button className={`dial-nav-item ${active === 'chains' ? 'active' : ''}`} onClick={onNav('chains')}>On-chain</button>
       </div>
 
       <div className="dial-topbar-spacer" />
@@ -219,6 +219,15 @@ function AvatarPopover({ open, onClose }) {
   const id = state.identity[state.org];
   const persona = (window.PERSONAS && window.PERSONAS[state.org]) || {};
   const logout = () => { dispatch({ type: 'logout' }); onClose(); };
+  const goAccount = () => { dispatch({ type: 'modal', modal: { kind: 'account' } }); onClose(); };
+  const itemStyle = {
+    width: '100%', padding: '11px 16px', textAlign: 'left',
+    border: 0, background: 'transparent', cursor: 'pointer',
+    fontSize: 13, color: 'var(--dial-text)',
+    display: 'flex', alignItems: 'center', gap: 8,
+  };
+  const hover = e => e.currentTarget.style.background = 'var(--dial-bg-soft)';
+  const unhover = e => e.currentTarget.style.background = 'transparent';
   return (
     <div className="dial-avatar-popover" onClick={e => e.stopPropagation()}
       style={open ? undefined : { display: 'none' }}>
@@ -235,15 +244,12 @@ function AvatarPopover({ open, onClose }) {
           </div>
         </div>
       </div>
-      <button onClick={logout} style={{
-        width: '100%', padding: '11px 16px', textAlign: 'left',
-        border: 0, background: 'transparent', cursor: 'pointer',
-        fontSize: 13, color: 'var(--dial-text)',
-        display: 'flex', alignItems: 'center', gap: 8,
-      }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--dial-bg-soft)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-        Logout
+      <button onClick={goAccount} style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover}>
+        <User size={14} /> Account &amp; address
+      </button>
+      <div style={{ height: 1, background: 'var(--dial-border)' }} />
+      <button onClick={logout} style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover}>
+        <ArrowL size={14} /> Logout
       </button>
     </div>
   );
@@ -458,6 +464,337 @@ function ResultCard({ result }) {
 // ─────────────────────────────────────────────────────────────
 // Dashboard
 // ─────────────────────────────────────────────────────────────
+// Editable account details — email (read-only) + postal/billing address.
+// Saves to the backend via PATCH /v1/auth/me; demo accounts are pre-filled.
+function AccountDetailsCard() {
+  const { state, dispatch } = useDial();
+  const id = state.identity[state.org];
+  const persona = (window.PERSONAS && window.PERSONAS[state.org]) || {};
+  const addr = id.address || {};
+  const email = id.email || persona.email || '—';
+
+  const [editing, setEditing] = React.useState(false);
+  const [line1, setLine1]     = React.useState('');
+  const [city, setCity]       = React.useState('');
+  const [country, setCountry] = React.useState('');
+  const [busy, setBusy]       = React.useState(false);
+  const [error, setError]     = React.useState(null);
+
+  const startEdit = () => {
+    setLine1(addr.line1 || ''); setCity(addr.city || ''); setCountry(addr.country || '');
+    setError(null); setEditing(true);
+  };
+  const save = async () => {
+    setError(null); setBusy(true);
+    try {
+      await saveAccountAddress(dispatch, state.org, { line1, city, country });
+      setEditing(false);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  const hasAddr = addr.line1 || addr.city || addr.country;
+  const inputStyle = { width: '100%' };
+
+  return (
+    <div className="dial-card" style={{ padding: 16, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Account details</h3>
+        {!editing && (
+          <button className="dial-btn sm" onClick={startEdit}><Edit size={13} /> Edit address</button>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, paddingBottom: 12,
+        borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 12 }}>
+        <span className="dial-muted" style={{ fontSize: 11.5, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Email</span>
+        <span style={{ fontSize: 13 }}>{email}</span>
+      </div>
+
+      {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+        color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>{error}</div>}
+
+      {!editing ? (
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
+          <span className="dial-muted" style={{ fontSize: 11.5, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600, paddingTop: 1 }}>Address</span>
+          <span style={{ fontSize: 13, textAlign: 'right', lineHeight: 1.5 }}>
+            {hasAddr
+              ? <>{addr.line1}{addr.line1 && <br/>}{[addr.city, addr.country].filter(Boolean).join(', ')}</>
+              : <span className="dial-muted">No address on file — add one.</span>}
+          </span>
+        </div>
+      ) : (
+        <div>
+          <div style={{ marginBottom: 10 }}>
+            <div className="dial-field-label">Street address</div>
+            <div className="dial-input-wrap"><input style={inputStyle} value={line1} onChange={e => setLine1(e.target.value)} placeholder="e.g. 12 Karlstrasse" autoFocus /></div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <div className="dial-field-label">City</div>
+              <div className="dial-input-wrap"><input style={inputStyle} value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. 80333 Munich" /></div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div className="dial-field-label">Country</div>
+              <div className="dial-input-wrap"><input style={inputStyle} value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. Germany" /></div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button className="dial-btn" onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
+            <button className="dial-btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save address'}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+window.AccountDetailsCard = AccountDetailsCard;
+
+// Linked Ethereum wallet — Sign-In-With-Ethereum, DIAL-native (no ENS).
+// Connecting proves control of the wallet (a signature, no gas) and binds it to
+// a DIAL name the account owns — shown here and on the public profile, and
+// reverse-resolvable address→name. Lives beside the account details.
+function WalletCard() {
+  const { state, dispatch } = useDial();
+  const id = state.identity[state.org] || {};
+  const wallet = id.wallet || null;
+  const [busy, setBusy]   = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  const run = (fn) => async () => {
+    setError(null); setBusy(true);
+    try { await fn(dispatch, state.org); }
+    catch (e) { setError(e.message || String(e)); }
+    finally { setBusy(false); }
+  };
+  const short = (a) => a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
+
+  return (
+    <div className="dial-card" style={{ padding: 16, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Ethereum wallet</h3>
+      </div>
+
+      {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+        color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>{error}</div>}
+
+      {wallet ? (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {wallet.avatar
+              ? <img src={wallet.avatar} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
+              : <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--dial-accent-bg)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Wallet size={18} stroke="var(--dial-accent)" /></div>}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{wallet.name || 'Linked wallet'}</div>
+              <div className="dial-mono dial-muted" style={{ fontSize: 12 }}>{short(wallet.address)}</div>
+            </div>
+          </div>
+          {!wallet.name && <div className="dial-muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+            No DIAL name points to this wallet yet — register one and it'll represent this address here and on your public profile.</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <button className="dial-btn sm" onClick={run(unlinkWallet)} disabled={busy}>{busy ? 'Working…' : 'Unlink'}</button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <p className="dial-muted" style={{ fontSize: 12.5, lineHeight: 1.55, margin: '0 0 12px' }}>
+            Connect an Ethereum wallet to prove control and bind it to your DIAL name — resolvable both ways, with no ENS.
+            You'll sign a message — no transaction, no gas.</p>
+          <button className="dial-btn primary" onClick={run(connectWallet)} disabled={busy}>
+            <Wallet size={14} stroke="#fff" /> {busy ? 'Check your wallet…' : 'Connect Ethereum wallet'}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+window.WalletCard = WalletCard;
+
+// On-chain mirror explorer — shows DIAL records mirrored to the EVM (Sepolia)
+// and Canton. When the EVM mirror is live, each row links to the real tx on a
+// block explorer; in mock mode it shows the DIAL-signed local log.
+function ScreenChains() {
+  const [evm, setEvm]       = React.useState([]);
+  const [canton, setCanton] = React.useState([]);
+  const [cfg, setCfg]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  // On-chain lookup — reads a record live from the contract, not the DB.
+  const [lookupName, setLookupName]     = React.useState('david.dial');
+  const [lookupResult, setLookupResult] = React.useState(null);
+  const [lookupBusy, setLookupBusy]     = React.useState(false);
+  const [lookupErr, setLookupErr]       = React.useState(null);
+
+  const doLookup = async () => {
+    const n = lookupName.trim().toLowerCase();
+    if (!n) return;
+    setLookupErr(null); setLookupBusy(true); setLookupResult(null);
+    try { setLookupResult(await dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(n))); }
+    catch (e) { setLookupErr(e.message || String(e)); }
+    finally { setLookupBusy(false); }
+  };
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const [e, c, k] = await Promise.all([
+        dialApi('GET', '/v1/chains/evm').catch(() => []),
+        dialApi('GET', '/v1/chains/canton').catch(() => []),
+        dialApi('GET', '/v1/chains/config').catch(() => null),
+      ]);
+      setEvm(Array.isArray(e) ? e : []); setCanton(Array.isArray(c) ? c : []); setCfg(k);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => {
+    load();
+    const t = setInterval(load, 4000); // poll so new mirror writes appear live
+    return () => clearInterval(t);
+  }, [load]);
+
+  const short = (h, a = 8, b = 6) => h ? (h.length > a + b + 2 ? h.slice(0, a) + '…' + h.slice(-b) : h) : '';
+  const when = (ms) => { try { return new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + 'Z'; } catch { return ''; } };
+  const txUrl = (hash) => cfg && cfg.explorerBase && hash ? cfg.explorerBase + '/tx/' + hash : null;
+  const addrUrl = (a) => cfg && cfg.explorerBase && a ? cfg.explorerBase + '/address/' + a : null;
+  const live = !!(cfg && cfg.enabled);
+
+  const opPill = (op) => {
+    const color = op === 'release' ? 'var(--dial-warn)' : op === 'register' ? 'var(--dial-ok)' : 'var(--dial-accent)';
+    return <span className="dial-pill" style={{ fontSize: 10, color, borderColor: color }}>{op}</span>;
+  };
+
+  return (
+    <div className="dial-screen" style={{ maxWidth: 920, margin: '0 auto', padding: '28px 20px' }}>
+      <div className="dial-eyebrow">DIAL · on-chain mirror</div>
+      <h1 className="dial-h1" style={{ margin: '4px 0 6px' }}>On-chain mirror</h1>
+      <p className="dial-muted" style={{ fontSize: 13.5, lineHeight: 1.55, maxWidth: 640, marginTop: 0 }}>
+        Every DIAL record is signed and mirrored to its supported chains. The EVM mirror is a
+        <code className="dial-mono" style={{ margin: '0 4px' }}>DialRegistry</code> contract; each write below is a real transaction.
+      </p>
+
+      {/* EVM network status */}
+      <div className="dial-card" style={{ padding: 16, margin: '16px 0',
+        background: live ? 'var(--dial-surface)' : 'var(--dial-accent-bg)',
+        borderColor: live ? 'var(--dial-ok)' : 'var(--dial-border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Chain size={18} stroke={live ? 'var(--dial-ok)' : 'var(--dial-accent)'} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>
+                EVM mirror · {cfg ? (cfg.network || 'unknown') : '…'} {live
+                  ? <span className="dial-pill ok" style={{ fontSize: 10, marginLeft: 6 }}>LIVE</span>
+                  : <span className="dial-pill" style={{ fontSize: 10, marginLeft: 6 }}>MOCK</span>}
+              </div>
+              <div className="dial-muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                {live
+                  ? <>Writing real transactions{cfg.chainId ? ' · chainId ' + cfg.chainId : ''}.</>
+                  : <>Records are DIAL-signed and logged locally. Set <code className="dial-mono">DIAL_EVM_ENABLED=true</code> to write to chain.</>}
+              </div>
+            </div>
+          </div>
+          {cfg && cfg.contractAddress && (
+            <div style={{ textAlign: 'right' }}>
+              <div className="dial-muted" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Contract</div>
+              {addrUrl(cfg.contractAddress)
+                ? <a className="dial-mono" style={{ fontSize: 12, color: 'var(--dial-accent)' }} href={addrUrl(cfg.contractAddress)} target="_blank" rel="noreferrer">{short(cfg.contractAddress, 8, 6)} <External size={11} /></a>
+                : <span className="dial-mono" style={{ fontSize: 12 }}>{short(cfg.contractAddress, 8, 6)}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* On-chain lookup — read a record straight from the contract */}
+      <div className="dial-card" style={{ padding: 16, marginBottom: 18 }}>
+        <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>On-chain lookup</h3>
+        <p className="dial-muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: '0 0 12px' }}>
+          Read a name's record <strong>straight from the {cfg ? cfg.network : ''} contract</strong> — trustless, not from DIAL's database. This is what an external wallet or dApp does.</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={lookupName} onChange={e => setLookupName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') doLookup(); }} placeholder="david.dial"
+            style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+              color: 'var(--dial-text)', padding: '8px 11px', borderRadius: 'var(--dial-radius-sm)',
+              fontFamily: 'var(--dial-font-mono)', fontSize: 13, outline: 'none' }} />
+          <button className="dial-btn primary" onClick={doLookup} disabled={lookupBusy || !live}>
+            {lookupBusy ? 'Reading chain…' : 'Read on-chain'}</button>
+        </div>
+        {!live && <div className="dial-muted" style={{ fontSize: 11.5, marginTop: 8 }}>Enable the EVM mirror to read on-chain.</div>}
+        {lookupErr && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+          color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginTop: 12, fontSize: 12 }}>{lookupErr}</div>}
+        {lookupResult && (lookupResult.found ? (
+          <div style={{ marginTop: 14, border: 'var(--dial-border-w) solid var(--dial-border)', borderRadius: 'var(--dial-radius-sm)', overflow: 'hidden' }}>
+            {[
+              ['owner', lookupResult.owner],
+              ['seq', String(lookupResult.seq)],
+              ['expires', (() => { try { return new Date(Number(lookupResult.expiresAt)).toISOString().slice(0, 10); } catch { return lookupResult.expiresAt; } })()],
+              ['released', String(lookupResult.released)],
+              ['attestationHash', short(lookupResult.attestationHash, 10, 8)],
+              ['addressesHash', short(lookupResult.addressesHash, 10, 8)],
+              ['nameHash', short(lookupResult.nameHash, 10, 8)],
+            ].map(([k, v], i) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px',
+                borderTop: i ? 'var(--dial-border-w) solid var(--dial-border)' : 'none', fontSize: 12 }}>
+                <span className="dial-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.03em', fontSize: 10.5 }}>{k}</span>
+                <code className="dial-mono" style={{ fontSize: 12 }}>{v}</code>
+              </div>
+            ))}
+            <div style={{ padding: '8px 12px', borderTop: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-bg-soft)' }}>
+              <span className="dial-muted" style={{ fontSize: 10.5 }}>read live via <code className="dial-mono">getRecord()</code> from {short(lookupResult.contract, 8, 6)} · chainId {lookupResult.chainId}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="dial-muted" style={{ fontSize: 12.5, marginTop: 12 }}>No on-chain record for <code className="dial-mono">{lookupResult.name}</code> (seq 0) — it hasn't been mirrored yet.</div>
+        ))}
+      </div>
+
+      {/* EVM mirror writes */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 8 }}>
+        <h3 className="dial-h3" style={{ margin: 0 }}>EVM writes <span className="dial-muted" style={{ fontWeight: 400 }}>· {evm.length}</span></h3>
+        <button className="dial-btn sm" onClick={load} disabled={loading}><Refresh size={12} /> {loading ? 'Loading…' : 'Refresh'}</button>
+      </div>
+      {evm.length === 0 ? (
+        <div className="dial-card" style={{ padding: 18, textAlign: 'center' }}>
+          <span className="dial-muted" style={{ fontSize: 13 }}>No EVM writes yet — register or update a name to mirror it on-chain.</span>
+        </div>
+      ) : (
+        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {evm.map((row, i) => (
+            <div key={row.id || i} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1.2fr 1.3fr', gap: 10, alignItems: 'center',
+              padding: '11px 16px', borderTop: i ? 'var(--dial-border-w) solid var(--dial-border)' : 'none', fontSize: 13 }}>
+              <code className="dial-mono" style={{ fontWeight: 600 }}>{row.name}</code>
+              <div>{opPill(row.op)}</div>
+              <span className="dial-mono dial-muted" style={{ fontSize: 11 }}>{when(row.written_at)}</span>
+              <div style={{ textAlign: 'right' }}>
+                {row.tx_hash
+                  ? (txUrl(row.tx_hash)
+                      ? <a className="dial-mono" style={{ fontSize: 11.5, color: 'var(--dial-accent)' }} href={txUrl(row.tx_hash)} target="_blank" rel="noreferrer">{short(row.tx_hash)} <External size={11} /></a>
+                      : <span className="dial-mono" style={{ fontSize: 11.5 }} title={row.tx_hash}>{short(row.tx_hash)}</span>)
+                  : (row.tx_status === 'pending'
+                      ? <span className="dial-pill" style={{ fontSize: 10 }}>pending…</span>
+                      : row.tx_status === 'failed' || row.tx_status === 'reverted'
+                        ? <span className="dial-pill warn" style={{ fontSize: 10 }}>{row.tx_status}</span>
+                        : <span className="dial-mono dial-muted" style={{ fontSize: 10 }} title={row.dial_sig}>sig {short(row.dial_sig, 6, 4)}</span>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Canton mirror (secondary) */}
+      <h3 className="dial-h3" style={{ margin: '22px 0 8px' }}>Canton writes <span className="dial-muted" style={{ fontWeight: 400 }}>· {canton.length}</span></h3>
+      <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+        {canton.length === 0
+          ? <div style={{ padding: 16 }}><span className="dial-muted" style={{ fontSize: 13 }}>No Canton writes yet.</span></div>
+          : canton.slice(0, 12).map((row, i) => (
+            <div key={row.id || i} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1.2fr 1.3fr', gap: 10, alignItems: 'center',
+              padding: '11px 16px', borderTop: i ? 'var(--dial-border-w) solid var(--dial-border)' : 'none', fontSize: 13 }}>
+              <code className="dial-mono" style={{ fontWeight: 600 }}>{row.name}</code>
+              <div>{opPill(row.op)}</div>
+              <span className="dial-mono dial-muted" style={{ fontSize: 11 }}>{when(row.written_at)}</span>
+              <span className="dial-mono dial-muted" style={{ fontSize: 10, textAlign: 'right' }} title={row.dial_sig}>sig {short(row.dial_sig, 6, 4)}</span>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 function ScreenDashboard() {
   const { state, dispatch } = useDial();
   const names   = state.names[state.org] || [];
@@ -658,7 +995,10 @@ function ScreenNameDetail() {
     ...((state.domains[state.org] || []).flatMap(d => d.names || [])),
   ];
   const name = ownedNames.find(n => n.name === state.route.name);
-  const [tab, setTab] = React.useState('records');
+  const [tab, setTab] = React.useState('profile');
+  // Subnames are an enterprise/domain feature — normal (consumer) accounts
+  // don't issue them, so the tab is hidden for them.
+  const isEnterprise = (state.identity[state.org] || {}).kind === 'enterprise';
 
   if (!name) {
     return <div className="dial-section"><div className="dial-card" style={{ padding: 24 }}>Name not found.</div></div>;
@@ -688,18 +1028,17 @@ function ScreenNameDetail() {
         <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
           <Globe size={14} /> View page
         </button>
-        <button className="dial-btn" onClick={() => renewName(state, dispatch, name.name)}><Refresh size={14} /> Renew</button>
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
         {[
-          ['records',      'Chain records', Object.keys(name.records).length],
-          ['links',        'Links',         LINK_PLATFORMS.filter(p => (name.text || {})[p.key]).length],
-          ['modes',        'Modes',         null],
+          ['profile',      'Profile',       LINK_PLATFORMS.filter(p => (name.text || {})[p.key]).length || null],
+          ['modes',        'Modules',       null],
           ['receptionist', 'Receptionist',  null],
-          ['subnames',     'Subnames',      (name.subnames || []).length],
+          ['records',      'Chain records', Object.keys(name.records).length],
+          isEnterprise && ['subnames', 'Subnames', (name.subnames || []).length],
           ['settings',     'Settings',      null],
-        ].map(([k, label, count]) => (
+        ].filter(Boolean).map(([k, label, count]) => (
           <button key={k}
             onClick={() => setTab(k)}
             style={{
@@ -718,7 +1057,7 @@ function ScreenNameDetail() {
       </div>
 
       {tab === 'records'      && <NameRecords name={name} />}
-      {tab === 'links'        && <NameLinks name={name} />}
+      {tab === 'profile'      && <NameProfile name={name} />}
       {tab === 'modes'        && <NameModes name={name} />}
       {tab === 'receptionist' && <NameReceptionist name={name} />}
       {tab === 'subnames'     && <NameSubnames name={name} />}
@@ -729,81 +1068,6 @@ function ScreenNameDetail() {
 
 // Linktree-style social links editor — one row per platform, stored as text
 // records and shown on the public address page.
-function NameLinks({ name }) {
-  const { state, dispatch } = useDial();
-  const initial = () => {
-    const t = name.text || {};
-    const o = {};
-    LINK_PLATFORMS.forEach(p => { o[p.key] = t[p.key] || ''; });
-    return o;
-  };
-  const [form, setForm] = React.useState(initial);
-  const [saving, setSaving] = React.useState(false);
-  React.useEffect(() => { setForm(initial()); }, [name.name, JSON.stringify(name.text)]);
-
-  const dirty = LINK_PLATFORMS.some(p => (form[p.key] || '').trim() !== ((name.text || {})[p.key] || '').trim());
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const save = async () => {
-    setSaving(true);
-    try { await saveLinks(state, dispatch, name.name, form); }
-    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
-    finally { setSaving(false); }
-  };
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <h3 className="dial-h3" style={{ margin: 0 }}>Links</h3>
-          {dirty && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="dial-btn sm" onClick={() => setForm(initial())} disabled={saving}>Discard</button>
-              <button className="dial-btn primary sm" onClick={save} disabled={saving}>
-                {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> Save</>}
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 12 }}>
-          Add the ways people can reach you. These appear as buttons on your public page — like a Linktree for your DIAL name.
-        </div>
-
-        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {LINK_PLATFORMS.map((p, i) => (
-            <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-              borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-              <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--dial-radius-sm)', background: p.color, color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.mark}</div>
-              <div style={{ width: 84, flexShrink: 0, fontSize: 13, fontWeight: 600 }}>{p.label}</div>
-              <input value={form[p.key]} onChange={e => set(p.key, e.target.value)} placeholder={p.placeholder}
-                style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
-                  color: 'var(--dial-text)', padding: '7px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12.5, outline: 'none' }} />
-              {form[p.key] ? <button className="dial-iconbtn" title="Clear" onClick={() => set(p.key, '')}><X size={14} /></button> : <span style={{ width: 28 }} />}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
-            <Globe size={13} /> View public page
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="dial-h3">Preview</h3>
-        <div className="dial-card" style={{ padding: 14 }}>
-          {(() => {
-            const links = nameLinks(form);
-            if (links.length === 0) return <div className="dial-muted" style={{ fontSize: 12 }}>No links yet — add some on the left.</div>;
-            return <div style={{ display: 'grid', gap: 8 }}>{links.map(l => <LinkButton key={l.key} l={l} preview />)}</div>;
-          })()}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // A single Linktree button — used on the public page and the editor preview.
 function LinkButton({ l, preview }) {
   const inner = (
@@ -824,17 +1088,14 @@ function LinkButton({ l, preview }) {
   return <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" style={style}>{inner}</a>;
 }
 
-// Owner-side modular profile modes — toggle modes on/off directly or by
-// talking to the mode agent (scripted; mirrors the "update by receptionist" idea).
+// Owner-side profile modules — toggle each module on/off, edit its copy, and
+// pick which one is primary. Active modules stack on the public page, primary
+// first.
 function NameModes({ name }) {
   const { state, dispatch } = useDial();
   const org = state.org;
   const [modes, setModes] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
-  const [msgs, setMsgs] = React.useState([{ role: 'agent', content: "Hi — I manage your profile modes. Tell me what to switch on or off, e.g. “turn on conference mode”, “open for partnerships”, or “close the profile”." }]);
-  const [input, setInput] = React.useState('');
-  const [sending, setSending] = React.useState(false);
-  const scrollRef = React.useRef(null);
 
   React.useEffect(() => {
     let c = false;
@@ -843,86 +1104,505 @@ function NameModes({ name }) {
       .catch(() => { if (!c) { setModes([]); setLoading(false); } });
     return () => { c = true; };
   }, [org, name.name]);
-  React.useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs, sending]);
 
-  const send = async () => {
-    const t = input.trim();
-    if (!t || sending) return;
-    setMsgs(m => [...m, { role: 'owner', content: t }]); setInput(''); setSending(true);
-    try {
-      const r = await sendModeAgent(org, name.name, t);
-      setMsgs(m => [...m, { role: 'agent', content: r.reply }]);
-      setModes(r.modes);
-    } catch (e) { setMsgs(m => [...m, { role: 'agent', content: 'Something went wrong: ' + e.message }]); }
-    finally { setSending(false); }
-  };
   const toggle = async (m) => {
     try { const r = await setModeActive(org, name.name, m.key, !m.active); setModes(r.modes); }
     catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
   };
-  const makePrimary = async (m) => {
-    try { const r = await setModePrimary(org, name.name, m.key); setModes(r.modes); }
-    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
-  };
 
-  if (loading) return <div className="dial-muted" style={{ fontSize: 13 }}>Loading modes…</div>;
+  if (loading) return <div className="dial-muted" style={{ fontSize: 13 }}>Loading modules…</div>;
+
+  // Modules that carry an appearance list (e.g. Conferences) get an inline editor.
+  const itemModes = (modes || []).filter(m => Array.isArray(m.items));
+  // The "Latest posts" module (social feed) is edited with its own posts editor.
+  const signalsMode = (modes || []).find(m => m.key === 'signals');
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+   <div style={{ display: 'grid', gap: 18 }}>
+    <div style={{ display: 'grid', gap: 18, alignItems: 'flex-start' }}>
       <div>
-        <h3 className="dial-h3" style={{ margin: 0 }}>Mode agent</h3>
-        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>Switch profile modes on or off in plain language — like updating your profile by chat.</div>
-        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div ref={scrollRef} style={{ maxHeight: 300, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {msgs.map((m, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: m.role === 'owner' ? 'flex-end' : 'flex-start' }}>
-                <div style={{ maxWidth: '82%', padding: '8px 12px', borderRadius: 'var(--dial-radius)', fontSize: 13, lineHeight: 1.45,
-                  background: m.role === 'owner' ? 'var(--dial-accent)' : 'var(--dial-surface)',
-                  color: m.role === 'owner' ? '#fff' : 'var(--dial-text)',
-                  border: m.role === 'owner' ? '0' : 'var(--dial-border-w) solid var(--dial-border)' }}>{m.content}</div>
-              </div>
-            ))}
-            {sending && <div className="dial-muted" style={{ fontSize: 12 }}>working…</div>}
-          </div>
-          <div style={{ padding: 12, borderTop: 'var(--dial-border-w) solid var(--dial-border)', display: 'flex', gap: 8 }}>
-            <input value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder={'e.g. "turn on conference mode"'} disabled={sending}
-              style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
-                color: 'var(--dial-text)', padding: '9px 12px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none' }} />
-            <button className="dial-btn primary" onClick={send} disabled={sending || !input.trim()}>Send</button>
-          </div>
-        </div>
-        <div className="dial-muted" style={{ fontSize: 11, marginTop: 8 }}>Try: "open for partnerships", "start hiring", "make partnership primary", "close the profile".</div>
-      </div>
-
-      <div>
-        <h3 className="dial-h3" style={{ margin: 0 }}>Modes</h3>
-        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>Active modes appear on your public profile. The primary mode shows first.</div>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Modules</h3>
+        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>Active modules appear on your public profile. The primary module shows first.</div>
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
           {(modes || []).map((m, i) => (
-            <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-              borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)', opacity: m.active ? 1 : 0.62 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {m.title}
-                  {m.active && m.primary && <span style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 10, textTransform: 'uppercase',
-                    color: 'var(--dial-accent)', border: '1px solid var(--dial-accent)', borderRadius: 999, padding: '2px 7px' }}>Primary</span>}
-                  {m.kind === 'module' && <span style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 10, textTransform: 'uppercase',
-                    color: 'var(--dial-muted)', border: '1px solid var(--dial-border)', borderRadius: 999, padding: '2px 7px' }}>Module</span>}
-                </div>
-                <div className="dial-muted" style={{ fontSize: 12 }}>{m.label} · {m.status}</div>
-              </div>
-              {m.active && !m.primary && m.kind !== 'module' && <button className="dial-btn sm" onClick={() => makePrimary(m)}>Make primary</button>}
-              <button className="dial-btn sm" onClick={() => toggle(m)}
-                style={m.active ? { borderColor: 'var(--dial-accent)', color: 'var(--dial-accent)', fontWeight: 600 } : {}}>{m.active ? 'On' : 'Off'}</button>
-            </div>
+            <ModuleRow key={m.key} org={org} name={name} mode={m} first={i === 0}
+              onToggle={() => toggle(m)} onModes={setModes} />
           ))}
         </div>
         <div style={{ marginTop: 12 }}>
           <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
             <Globe size={13} /> View public page
           </button>
+        </div>
+      </div>
+    </div>
+
+    {itemModes.map(m => (
+      <AppearancesEditor key={m.key} org={org} name={name.name} mode={m} onModes={setModes} />
+    ))}
+
+    {signalsMode && <LatestPostsEditor name={name} mode={signalsMode} />}
+   </div>
+  );
+}
+
+// A single module row: On/Off toggle plus an expandable editor for its copy
+// (title, status, body, CTA, and — for availability modules — the detail cards).
+function ModuleRow({ org, name, mode, first, onToggle, onModes }) {
+  const { dispatch } = useDial();
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  // Conference appearances and Latest posts carry their own dedicated editors
+  // below; the detail-card grid only drives the availability modules.
+  const supportsMinis = !Array.isArray(mode.items) && mode.key !== 'signals';
+
+  const fresh = () => ({
+    title: mode.title || '', status: mode.status || '', copy: mode.copy || '', cta: mode.cta || '',
+    minis: (mode.minis || []).map(([a, b]) => [a, b]),
+  });
+  const [draft, setDraft] = React.useState(fresh);
+  const begin = () => { setDraft(fresh()); setOpen(true); };
+  const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+  const setMini = (i, j, v) => setDraft(d => ({ ...d, minis: d.minis.map((p, k) => k === i ? (j === 0 ? [v, p[1]] : [p[0], v]) : p) }));
+  const addMini = () => setDraft(d => ({ ...d, minis: [...d.minis, ['', '']] }));
+  const delMini = (i) => setDraft(d => ({ ...d, minis: d.minis.filter((_, k) => k !== i) }));
+
+  const save = async () => {
+    if (!draft.title.trim()) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Title is required.' } }); return; }
+    setSaving(true);
+    try {
+      const fields = { title: draft.title, status: draft.status, copy: draft.copy, cta: draft.cta };
+      if (supportsMinis) fields.minis = draft.minis.filter(([a, b]) => a.trim() || b.trim());
+      const r = await setModeContent(org, name.name, mode.key, fields);
+      onModes(r.modes); setOpen(false);
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: mode.label + ' updated.' } });
+    } catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setSaving(false); }
+  };
+  const reset = async () => {
+    setSaving(true);
+    try {
+      const r = await resetModeContent(org, name.name, mode.key);
+      onModes(r.modes); setOpen(false);
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: mode.label + ' reset to default.' } });
+    } catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Reset failed: ' + e.message } }); }
+    finally { setSaving(false); }
+  };
+  const makePrimary = async () => {
+    try { const r = await setModePrimary(org, name.name, mode.key); onModes(r.modes); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
+  };
+
+  const inp = { width: '100%', boxSizing: 'border-box', background: 'var(--dial-bg-soft)',
+    border: 'var(--dial-border-w) solid var(--dial-border)', color: 'var(--dial-text)', padding: '9px 11px',
+    borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none' };
+  const lbl = { fontSize: 11, fontWeight: 600, color: 'var(--dial-muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 5, display: 'block' };
+
+  return (
+    <div style={{ borderTop: first ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', opacity: mode.active ? 1 : 0.62 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {mode.title}
+            {mode.active && mode.primary && <span style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 10, textTransform: 'uppercase',
+              color: 'var(--dial-accent)', border: '1px solid var(--dial-accent)', borderRadius: 999, padding: '2px 7px' }}>Primary</span>}
+          </div>
+          <div className="dial-muted" style={{ fontSize: 12 }}>{mode.label} · {mode.status}</div>
+        </div>
+        {mode.active && !mode.primary && <button className="dial-btn sm" onClick={makePrimary}>Make primary</button>}
+        <button className="dial-btn sm" onClick={() => (open ? setOpen(false) : begin())}
+          style={open ? { borderColor: 'var(--dial-accent)', color: 'var(--dial-accent)', fontWeight: 600 } : {}}>
+          {open ? 'Close' : 'Edit'}
+        </button>
+        <button className="dial-btn sm" onClick={onToggle}
+          style={mode.active ? { borderColor: 'var(--dial-accent)', color: 'var(--dial-accent)', fontWeight: 600 } : {}}>{mode.active ? 'On' : 'Off'}</button>
+      </div>
+
+      {open && (
+        <div style={{ padding: '4px 14px 16px', display: 'grid', gap: 12, background: 'var(--dial-bg-soft)',
+          borderTop: 'var(--dial-border-w) solid var(--dial-border)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+            <div><label style={lbl}>Title</label><input style={inp} value={draft.title} onChange={e => set('title', e.target.value)} maxLength={120} /></div>
+            <div><label style={lbl}>Status</label><input style={inp} value={draft.status} onChange={e => set('status', e.target.value)} maxLength={40} /></div>
+          </div>
+          <div><label style={lbl}>Body copy</label><textarea style={{ ...inp, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }}
+            value={draft.copy} onChange={e => set('copy', e.target.value)} maxLength={600} /></div>
+          <div><label style={lbl}>Button label</label><input style={inp} value={draft.cta} onChange={e => set('cta', e.target.value)} maxLength={60}
+            placeholder="e.g. Propose a partnership" /></div>
+
+          {supportsMinis && (
+            <div>
+              <label style={lbl}>Detail cards</label>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {draft.minis.map(([a, b], i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr auto', gap: 8, alignItems: 'center' }}>
+                    <input style={inp} value={a} onChange={e => setMini(i, 0, e.target.value)} placeholder="Label" maxLength={40} />
+                    <input style={inp} value={b} onChange={e => setMini(i, 1, e.target.value)} placeholder="Value" maxLength={160} />
+                    <button className="dial-btn sm" onClick={() => delMini(i)} title="Remove card">✕</button>
+                  </div>
+                ))}
+                {draft.minis.length < 6 && <button className="dial-btn sm" style={{ justifySelf: 'start' }} onClick={addMini}>+ Add card</button>}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 2 }}>
+            <button className="dial-btn primary sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="dial-btn sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</button>
+            <button className="dial-btn sm" style={{ marginLeft: 'auto', color: 'var(--dial-muted)' }} onClick={reset} disabled={saving}>Reset to default</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Owner-side editor for the "Latest posts" module — the X / LinkedIn featured
+// post links shown on the public page. Stored as text records (x_posts /
+// linkedin_posts); shares the resolver-text save path with the Links editor.
+function LatestPostsEditor({ name, mode }) {
+  const { state, dispatch } = useDial();
+  const initial = () => ({ x_posts: (name.text || {}).x_posts || '', linkedin_posts: (name.text || {}).linkedin_posts || '' });
+  const [form, setForm] = React.useState(initial);
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => { setForm(initial()); }, [name.name, JSON.stringify(name.text)]);
+
+  const dirty = ['x_posts', 'linkedin_posts'].some(k => (form[k] || '').trim() !== ((name.text || {})[k] || '').trim());
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const save = async () => {
+    setSaving(true);
+    try { await saveLinks(state, dispatch, name.name, form, 'Latest posts updated.'); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setSaving(false); }
+  };
+  const ta = { width: '100%', boxSizing: 'border-box', background: 'var(--dial-bg-soft)',
+    border: 'var(--dial-border-w) solid var(--dial-border)', color: 'var(--dial-text)', padding: '10px 12px',
+    borderRadius: 'var(--dial-radius-sm)', fontSize: 12, fontFamily: 'var(--dial-font-mono)', outline: 'none', resize: 'vertical' };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <h3 className="dial-h3" style={{ margin: 0 }}>{mode.title}</h3>
+        {dirty && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="dial-btn sm" onClick={() => setForm(initial())} disabled={saving}>Discard</button>
+            <button className="dial-btn primary sm" onClick={save} disabled={saving}>
+              {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> Save</>}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="dial-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        Feature posts in your “{mode.label}” module by hand — paste up to 3 post links each, newest first.
+        They render as the platform's own official embeds on your public page.
+      </div>
+
+      <div style={{ fontSize: 12.5, fontWeight: 600, margin: '4px 0 4px' }}>X / Twitter — tweet links</div>
+      <textarea value={form.x_posts} onChange={e => set('x_posts', e.target.value)} rows={3} style={ta}
+        placeholder={'https://twitter.com/yourhandle/status/1790000000000000000\nhttps://x.com/yourhandle/status/1789000000000000000'} />
+      <div className="dial-muted" style={{ fontSize: 11.5, margin: '4px 0 14px' }}>
+        On a tweet, use <b>···</b> → <b>Copy link</b>. (X's free auto-timeline renders blank for logged-out visitors, so we embed specific tweets.)
+      </div>
+
+      <div style={{ fontSize: 12.5, fontWeight: 600, margin: '4px 0 4px' }}>LinkedIn — post links</div>
+      <textarea value={form.linkedin_posts} onChange={e => set('linkedin_posts', e.target.value)} rows={3} style={ta}
+        placeholder={'https://www.linkedin.com/feed/update/urn:li:activity:7203456789012345678\nhttps://www.linkedin.com/posts/your-name_slug-activity-7201234567890123456-abcd'} />
+      <div className="dial-muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+        On a post, use <b>···</b> → <b>Embed this post</b> (or <b>Copy link</b>).
+      </div>
+    </div>
+  );
+}
+
+// Owner-side editor for a module's appearance list (e.g. conference dates).
+// Add new appearances, edit any in place, and delete — each change re-publishes
+// to the public profile. Edits return the full mode set so the parent stays in sync.
+const EMPTY_APPT = { mon: '', day: '', title: '', sub: '', tag: '' };
+function AppearancesEditor({ org, name, mode, onModes }) {
+  const { dispatch } = useDial();
+  const [editId, setEditId] = React.useState(null); // item id being edited, or 'new'
+  const [draft, setDraft] = React.useState(EMPTY_APPT);
+  const [busy, setBusy] = React.useState(false);
+  const items = mode.items || [];
+
+  const startAdd = () => { setEditId('new'); setDraft(EMPTY_APPT); };
+  const startEdit = (it) => { setEditId(it.id); setDraft({ mon: it.mon, day: it.day, title: it.title, sub: it.sub, tag: it.tag }); };
+  const cancel = () => { setEditId(null); setDraft(EMPTY_APPT); };
+
+  const save = async () => {
+    if (busy) return;
+    if (!draft.title.trim() || !draft.mon.trim() || !draft.day.trim()) {
+      dispatch({ type: 'toast', toast: { kind: 'info', text: 'Month, day and title are required.' } });
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = editId === 'new'
+        ? await addModeItem(org, name, mode.key, draft)
+        : await updateModeItem(org, name, mode.key, editId, draft);
+      onModes(r.modes); cancel();
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: editId === 'new' ? 'Appearance added.' : 'Appearance updated.' } });
+    } catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
+    finally { setBusy(false); }
+  };
+  const remove = async (it) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await deleteModeItem(org, name, mode.key, it.id);
+      onModes(r.modes); if (editId === it.id) cancel();
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Appearance removed.' } });
+    } catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message } }); }
+    finally { setBusy(false); }
+  };
+
+  const fieldStyle = { background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+    color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none', width: '100%' };
+  const Form = (
+    <div style={{ display: 'grid', gap: 8, padding: 12, background: 'var(--dial-bg-soft)', borderRadius: 'var(--dial-radius-sm)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 1fr', gap: 8 }}>
+        <input style={fieldStyle} placeholder="JUL" value={draft.mon} maxLength={4}
+          onChange={e => setDraft(d => ({ ...d, mon: e.target.value }))} />
+        <input style={fieldStyle} placeholder="01" value={draft.day} maxLength={3}
+          onChange={e => setDraft(d => ({ ...d, day: e.target.value }))} />
+        <input style={fieldStyle} placeholder="Event title" value={draft.title}
+          onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
+      </div>
+      <input style={fieldStyle} placeholder="Location · context" value={draft.sub}
+        onChange={e => setDraft(d => ({ ...d, sub: e.target.value }))} />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input style={{ ...fieldStyle, maxWidth: 180 }} placeholder="Attending / Speaking" value={draft.tag}
+          onChange={e => setDraft(d => ({ ...d, tag: e.target.value }))} />
+        <div style={{ flex: 1 }} />
+        <button className="dial-btn sm" onClick={cancel} disabled={busy}>Cancel</button>
+        <button className="dial-btn sm primary" onClick={save} disabled={busy}>{editId === 'new' ? 'Add' : 'Save'}</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <h3 className="dial-h3" style={{ margin: 0 }}>{mode.title}</h3>
+      <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>
+        Manage the appearances shown in your “{mode.label}” module. Changes publish to your public profile.
+      </div>
+      <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+        {items.length === 0 && editId !== 'new' && (
+          <div className="dial-muted" style={{ fontSize: 13, padding: 14 }}>No appearances yet.</div>
+        )}
+        {items.map((it, i) => (
+          <div key={it.id} style={{ padding: '12px 14px', borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
+            {editId === it.id ? Form : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 11, textAlign: 'center', minWidth: 40, color: 'var(--dial-muted)' }}>
+                  <div>{it.mon}</div><strong style={{ fontSize: 15, color: 'var(--dial-text)' }}>{it.day}</strong>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{it.title}</div>
+                  <div className="dial-muted" style={{ fontSize: 12 }}>{it.sub}{it.tag ? ' · ' + it.tag : ''}</div>
+                </div>
+                <button className="dial-btn sm" onClick={() => startEdit(it)} disabled={busy}>Edit</button>
+                <button className="dial-btn sm" onClick={() => remove(it)} disabled={busy}>Delete</button>
+              </div>
+            )}
+          </div>
+        ))}
+        {editId === 'new' && (
+          <div style={{ padding: '12px 14px', borderTop: items.length ? 'var(--dial-border-w) solid var(--dial-border)' : 0 }}>{Form}</div>
+        )}
+      </div>
+      {editId !== 'new' && (
+        <div style={{ marginTop: 12 }}>
+          <button className="dial-btn" onClick={startAdd} disabled={busy}>+ Add appearance</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Profile tab — public-page identity. Hosts the profile picture for now; sits
+// apart from the receptionist (the chat agent) so the two don't get conflated.
+// Combined Profile editor — picture + reachable links + featured posts, with a
+// live link preview. The avatar saves on its own; links and posts share one
+// save bar. (Formerly two tabs: Profile and Links.)
+function NameProfile({ name }) {
+  const { state, dispatch } = useDial();
+  const persona = state.identity[state.org] || {};
+  // Links live in the name's text records; headline/bio live in the receptionist
+  // config (loaded async). Both share this tab's single save bar.
+  const linkBase = () => {
+    const t = name.text || {};
+    const o = {};
+    LINK_PLATFORMS.forEach(p => { o[p.key] = t[p.key] || ''; });
+    return o;
+  };
+  const initial = () => ({ ...linkBase(), headline: '', bio: '' });
+  const [cfg, setCfg] = React.useState(null);          // receptionist config, or null if none yet
+  const [base, setBase] = React.useState(initial);     // last-saved values, for dirty/discard
+  const [form, setForm] = React.useState(base);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const links = linkBase();
+    loadReceptionist(state.org, name.name)
+      .then(c => {
+        if (cancelled) return;
+        const next = { ...links, headline: (c && c.headline) || '', bio: (c && c.bio) || '' };
+        setCfg(c || null); setBase(next); setForm(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const next = { ...links, headline: '', bio: '' };
+        setCfg(null); setBase(next); setForm(next);
+      });
+    return () => { cancelled = true; };
+  }, [name.name, state.org, JSON.stringify(name.text)]);
+
+  const linksDirty = LINK_PLATFORMS.some(p => (form[p.key] || '').trim() !== (base[p.key] || '').trim());
+  const textDirty = (form.headline || '').trim() !== (base.headline || '').trim()
+                 || (form.bio || '').trim() !== (base.bio || '').trim();
+  const dirty = linksDirty || textDirty;
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (linksDirty) await saveLinks(state, dispatch, name.name, form);
+      if (textDirty) {
+        const ownerFirst = (persona.name || '').split(' ')[0] || 'me';
+        const saved = await saveReceptionist(state, dispatch, name.name, {
+          // owner_name / receptionist_name are required by the API; reuse the
+          // existing config when present, otherwise fall back to the persona.
+          owner_name: (cfg && cfg.owner_name) || persona.name || name.name,
+          receptionist_name: (cfg && cfg.receptionist_name) || (ownerFirst + "'s Receptionist"),
+          headline: form.headline, bio: form.bio,
+        });
+        setCfg(saved);
+      }
+      setBase({ ...form });
+    } catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <h3 className="dial-h3" style={{ margin: 0 }}>Profile</h3>
+          {dirty && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="dial-btn sm" onClick={() => setForm(base)} disabled={saving}>Discard</button>
+              <button className="dial-btn primary sm" onClick={save} disabled={saving}>
+                {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> Save</>}
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
+          How you appear on your public page — your picture and the ways people can reach you.
+        </div>
+
+        <AvatarEditor name={name} />
+
+        <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>About</h3>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          The headline and short bio shown beneath your name on your public page.
+        </div>
+        <div className="dial-card" style={{ padding: 16, display: 'grid', gap: 12, marginBottom: 18 }}>
+          <div>
+            <div className="dial-field-label">Headline</div>
+            <input value={form.headline || ''} onChange={e => set('headline', e.target.value)}
+              placeholder="e.g. Designer · non-custodial identity"
+              style={{ width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+                color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none' }} />
+          </div>
+          <div>
+            <div className="dial-field-label">Bio</div>
+            <textarea value={form.bio || ''} onChange={e => set('bio', e.target.value)} rows={3}
+              placeholder="A short bio shown on your public page."
+              style={{ width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+                color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none',
+                resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+        </div>
+
+        <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>Links</h3>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          Add the ways people can reach you. These appear as buttons on your public page — like a Linktree for your DIAL name.
+        </div>
+
+        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {LINK_PLATFORMS.map((p, i) => (
+            <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+              borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
+              <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--dial-radius-sm)', background: p.color, color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.mark}</div>
+              <div style={{ width: 84, flexShrink: 0, fontSize: 13, fontWeight: 600 }}>{p.label}</div>
+              <input value={form[p.key]} onChange={e => set(p.key, e.target.value)} placeholder={p.placeholder}
+                style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+                  color: 'var(--dial-text)', padding: '7px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12.5, outline: 'none' }} />
+              {form[p.key] ? <button className="dial-iconbtn" title="Clear" onClick={() => set(p.key, '')}><X size={14} /></button> : <span style={{ width: 28 }} />}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
+            <Globe size={13} /> View public page
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Profile picture editor — add / replace / remove the avatar shown on the
+// public page hero. Saves immediately (no form); empty falls back to a default.
+function AvatarEditor({ name }) {
+  const { state, dispatch } = useDial();
+  const current = (name.text || {}).avatar || '';
+  const hasAvatar = isAvatarValue(current);
+  const ownerName = (state.identity[state.org] && state.identity[state.org].name) || name.name;
+  const fileRef = React.useRef(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const onFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-picking the same file later
+    if (!file) return;
+    setBusy(true);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await saveAvatar(state, dispatch, name.name, dataUrl);
+    } catch (err) {
+      dispatch({ type: 'toast', toast: { kind: 'info', text: err.message || 'Upload failed.' } });
+    } finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try { await saveAvatar(state, dispatch, name.name, ''); }
+    catch (err) { dispatch({ type: 'toast', toast: { kind: 'info', text: err.message || 'Remove failed.' } }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="dial-card" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={onFile} style={{ display: 'none' }} />
+      {hasAvatar
+        ? <img src={current} alt="Profile picture" style={{ width: 72, height: 72, borderRadius: 'var(--dial-radius-sm)', objectFit: 'cover', border: 'var(--dial-border-w) solid var(--dial-border)', flexShrink: 0 }} />
+        : <div className="dial-avatar" style={{ width: 72, height: 72, fontSize: 24, flexShrink: 0 }}>{initialsOf(ownerName)}</div>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 13 }}>Profile picture</div>
+        <div className="dial-muted" style={{ fontSize: 12, marginTop: 2 }}>
+          {hasAvatar ? 'Shown on your public page.' : 'No picture yet — your initials are used as a default.'}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button className="dial-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>
+            {busy ? <><Spinner size={13} /> Working</> : (hasAvatar ? 'Replace' : 'Upload')}
+          </button>
+          {hasAvatar && <button className="dial-btn" onClick={remove} disabled={busy}>Remove</button>}
         </div>
       </div>
     </div>
@@ -1063,12 +1743,24 @@ function EvmEditor({ name }) {
   React.useEffect(() => { setValue(current); setErr(null); }, [current]);
 
   const valid = isEvmAddress(value);
+  const walletLinked = !!(state.identity[state.org] && state.identity[state.org].wallet);
   const save = async () => {
     setErr(null); setSaving(true);
     try {
       await addEvmAddress(state, dispatch, name.name, value);
       setOpen(false);
     } catch (e) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+  // Decentralised path: the consumer signs the update in their own wallet; DIAL
+  // relays it. Available once the wallet is linked (= the name's on-chain controller).
+  const saveSigned = async () => {
+    setErr(null); setSaving(true);
+    try {
+      await updateEvmAddressSigned(dispatch, name.name, value);
+      await fetchOrgNames(state, dispatch, state.org); // refresh the record
+      setOpen(false);
+    } catch (e) { setErr(e.message || String(e)); }
     finally { setSaving(false); }
   };
 
@@ -1109,12 +1801,21 @@ function EvmEditor({ name }) {
           fontFamily: 'var(--dial-font-mono)', fontSize: 12, outline: 'none' }} />
       {value && !valid && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>Expected 0x followed by 40 hex characters.</div>}
       {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>{err}</div>}
-      <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>Binding requires proof of control (EIP-191/712) — mocked in this PoC.</div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+      <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>
+        {walletLinked
+          ? <>Your wallet controls this address on-chain — <strong>you</strong> sign the update, DIAL just relays it (gasless). DIAL can't change it.</>
+          : <>Saved off-chain by DIAL. Link your Ethereum wallet to control this address on-chain yourself.</>}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         <button className="dial-btn sm" onClick={() => { setOpen(false); setValue(current); setErr(null); }} disabled={saving}>Cancel</button>
-        <button className="dial-btn primary sm" onClick={save} disabled={!valid || saving}>
-          {saving ? <><Spinner size={12} stroke="#fff" /> Saving</> : <><Check size={12} stroke="#fff" /> {current ? 'Update' : 'Add'} EVM address</>}
+        <button className="dial-btn sm" onClick={save} disabled={!valid || saving}>
+          {saving ? <><Spinner size={12} /> Saving</> : <>{current ? 'Update' : 'Add'} (DIAL)</>}
         </button>
+        {walletLinked && (
+          <button className="dial-btn primary sm" onClick={saveSigned} disabled={!valid || saving}>
+            {saving ? <><Spinner size={12} stroke="#fff" /> Sign…</> : <><Shield size={12} stroke="#fff" /> Sign &amp; set on-chain</>}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1191,18 +1892,6 @@ function NameRecords({ name }) {
         </div>
         <div style={{ marginTop: 14 }}>
           <EvmEditor name={name} />
-        </div>
-
-        <h3 className="dial-h3" style={{ marginTop: 26, marginBottom: 10 }}>Text records</h3>
-        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {Object.entries(name.text || {}).map(([k, v], i) => (
-            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-              <code className="dial-mono" style={{ fontSize: 11, color: 'var(--dial-muted)', minWidth: 90, background: 'transparent', border: 0, padding: 0 }}>{k}</code>
-              <span style={{ flex: 1, fontSize: 13, fontFamily: 'var(--dial-font-mono)' }}>{v || <span className="dial-muted">—</span>}</span>
-              <Edit size={13} stroke="var(--dial-muted)" />
-            </div>
-          ))}
-          {Object.keys(name.text || {}).length === 0 && <div className="dial-muted" style={{ padding: 14, fontSize: 13 }}>No text records.</div>}
         </div>
       </div>
 
@@ -1646,9 +2335,67 @@ function pubCta() {
     background: PUB.black, color: PUB.cream, borderRadius: 14, padding: '12px 16px', fontWeight: 700, fontSize: 14, fontFamily: PUB.sans };
 }
 
+// Latest-posts embeds — official single-tweet embeds + official LinkedIn post
+// embeds, both owner-curated (X's free timeline widget renders empty for
+// logged-out viewers, so we embed specific tweets instead).
+function SocialEmbeds({ embeds }) {
+  const xHandle = embeds && embeds.x && embeds.x.handle;
+  const xTweets = (embeds && embeds.x && embeds.x.tweets) || [];
+  const liPosts = (embeds && embeds.linkedin && embeds.linkedin.embeds) || [];
+  const ref = React.useRef(null);
+
+  // Load X's widgets.js once, then (re)hydrate the tweet embeds in this block.
+  React.useEffect(() => {
+    if (xTweets.length === 0) return;
+    const hydrate = () => { try { window.twttr && window.twttr.widgets && window.twttr.widgets.load(ref.current); } catch (e) {} };
+    if (window.twttr && window.twttr.widgets) { hydrate(); return; }
+    let s = document.getElementById('twitter-wjs');
+    if (!s) {
+      s = document.createElement('script');
+      s.id = 'twitter-wjs';
+      s.src = 'https://platform.twitter.com/widgets.js';
+      s.async = true;
+      document.body.appendChild(s);
+    }
+    s.addEventListener('load', hydrate);
+    return () => { try { s.removeEventListener('load', hydrate); } catch (e) {} };
+  }, [xTweets.join('|')]);
+
+  if (xTweets.length === 0 && liPosts.length === 0) return null;
+  const label = { fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', color: PUB.red };
+  return (
+    <div ref={ref} style={{ display: 'grid', gap: 14, marginTop: 16 }}>
+      {xTweets.length > 0 && (
+        <div style={{ border: '1px solid ' + PUB.hair, borderRadius: 14, padding: '8px 10px', background: PUB.card }}>
+          <div style={{ ...label, padding: '6px 4px', display: 'flex', justifyContent: 'space-between' }}>
+            <span>X · latest</span>
+            {xHandle && <a href={'https://twitter.com/' + xHandle} target="_blank" rel="noopener noreferrer"
+              style={{ color: PUB.muted, textDecoration: 'none' }}>@{xHandle} →</a>}
+          </div>
+          {xTweets.map((url) => (
+            <blockquote key={url} className="twitter-tweet" data-dnt="true" data-conversation="none" style={{ margin: '4px 0' }}>
+              <a href={url}>{url}</a>
+            </blockquote>
+          ))}
+        </div>
+      )}
+      {liPosts.map((src, i) => (
+        <div key={src} style={{ border: '1px solid ' + PUB.hair, borderRadius: 14, overflow: 'hidden', background: PUB.card }}>
+          <div style={{ ...label, padding: '10px 12px 4px' }}>LinkedIn · featured</div>
+          <iframe src={src} title={'LinkedIn post ' + (i + 1)} width="100%" height="480"
+            frameBorder="0" allowFullScreen loading="lazy" style={{ display: 'block', border: 0 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Shared body for a mode/module block — renders whichever content fits:
-// appearances (items), social signals, or the 3 detail cards (minis).
+// social embeds, appearances (items), social signals, or the 3 detail cards.
 function PubBlockBody({ m }) {
+  if (m.embeds) {
+    return <SocialEmbeds embeds={m.embeds} />;
+  }
   if (m.items && m.items.length > 0) {
     return (
       <div style={{ marginTop: 16 }}>
@@ -1676,13 +2423,21 @@ function PubBlockBody({ m }) {
   if (m.signals && m.signals.length > 0) {
     return (
       <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-        {m.signals.map((s, i) => (
-          <div key={i} style={{ border: '1px solid ' + PUB.hair, borderRadius: 14, padding: '14px 16px', background: PUB.card }}>
-            <div style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', color: PUB.red, marginBottom: 7 }}>{s.source}</div>
-            <p style={{ fontSize: 14.5, color: '#272727', lineHeight: 1.5 }}>{s.text}</p>
-            <div style={{ fontFamily: PUB.mono, fontSize: 11, color: PUB.muted, marginTop: 10 }}>{s.meta}</div>
-          </div>
-        ))}
+        {m.signals.map((s, i) => {
+          const href = s.url && window.isSafeHref(s.url) ? s.url : null;
+          const cardStyle = { display: 'block', textDecoration: 'none', color: 'inherit',
+            border: '1px solid ' + PUB.hair, borderRadius: 14, padding: '14px 16px', background: PUB.card };
+          const body = (
+            <React.Fragment>
+              <div style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', color: PUB.red, marginBottom: 7 }}>{s.source}</div>
+              <p style={{ fontSize: 14.5, color: '#272727', lineHeight: 1.5 }}>{s.text}</p>
+              <div style={{ fontFamily: PUB.mono, fontSize: 11, color: PUB.muted, marginTop: 10 }}>{s.meta}</div>
+            </React.Fragment>
+          );
+          return href
+            ? <a key={i} href={href} target="_blank" rel="noopener noreferrer" style={cardStyle}>{body}</a>
+            : <div key={i} style={cardStyle}>{body}</div>;
+        })}
       </div>
     );
   }
@@ -1747,9 +2502,9 @@ function ScreenPublic() {
   ].filter(Boolean);
   const links = nameLinks(page.texts);
   const avatar = (page.texts && page.texts.avatar) || '';
-  const avatarOk = /^(\/[^\s]+|https?:\/\/\S+)$/i.test(avatar);
+  const avatarOk = isAvatarValue(avatar);
   const rec = page.receptionist;
-  const activeMods = page.modes || []; // all active mods, stacked under each other (primary first)
+  const activeMods = page.modes || []; // all active modules, stacked under each other (primary first)
 
   const Eyebrow = ({ children, color }) => (
     <div style={{ fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.12em', color: color || PUB.muted }}>{children}</div>
@@ -1764,7 +2519,7 @@ function ScreenPublic() {
 
         {/* HERO */}
         <section className="pub-hero" style={{ background: PUB.black, color: PUB.cream, padding: 44, display: 'grid',
-          gridTemplateColumns: avatarOk ? '1.3fr .7fr' : '1fr', gap: 38, alignItems: 'center' }}>
+          gridTemplateColumns: '1.3fr .7fr', gap: 38, alignItems: 'center' }}>
           <div>
             <div style={{ fontFamily: PUB.mono, fontSize: 16, textTransform: 'uppercase', letterSpacing: '.12em', color: PUB.sand }}>{display}</div>
             <h1 style={{ fontSize: 'clamp(44px,7vw,76px)', letterSpacing: '-.05em', lineHeight: .86, fontWeight: 800, margin: '16px 0 0' }}>
@@ -1778,10 +2533,15 @@ function ScreenPublic() {
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: PUB.red, color: '#fff',
                   fontFamily: PUB.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em', borderRadius: 999, padding: '9px 14px' }}>● Receptionist on duty</span>
               )}
-              {page.owner_verified && (
+              {page.owner_verified ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#d8cfbf', fontFamily: PUB.mono,
                   fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#7fe0a3' }} />Pairpoint-verified
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#b8ae9c', fontFamily: PUB.mono,
+                  fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#c9a14a' }} />Identity not verified
                 </span>
               )}
             </div>
@@ -1797,12 +2557,17 @@ function ScreenPublic() {
             )}
           </div>
 
-          {avatarOk && (
-            <div style={{ position: 'relative' }}>
-              <img src={avatar} alt={ownerName} style={{ display: 'block', width: '100%', aspectRatio: '4 / 5',
-                objectFit: 'cover', borderRadius: 20, border: '1px solid rgba(255,255,255,.14)' }} />
-            </div>
-          )}
+          <div style={{ position: 'relative' }}>
+            {avatarOk
+              ? <img src={avatar} alt={ownerName} style={{ display: 'block', width: '100%', aspectRatio: '4 / 5',
+                  objectFit: 'cover', borderRadius: 20, border: '1px solid rgba(255,255,255,.14)' }} />
+              : <div aria-label={ownerName} style={{ width: '100%', aspectRatio: '4 / 5', borderRadius: 20,
+                  border: '1px solid rgba(255,255,255,.14)', background: 'linear-gradient(150deg,#2c2722,#15120c)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontFamily: PUB.sans, fontWeight: 800, fontSize: 'clamp(48px,9vw,104px)',
+                    letterSpacing: '-.04em', color: PUB.sand }}>{initialsOf(ownerName)}</span>
+                </div>}
+          </div>
         </section>
 
         {/* MODS — every active mod stacked under each other (no tab switcher). */}

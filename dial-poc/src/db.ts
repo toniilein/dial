@@ -171,6 +171,9 @@ db.exec(`
     owner_address TEXT NOT NULL UNIQUE,   -- the ownership identity used everywhere
     verified      INTEGER NOT NULL DEFAULT 0,  -- admin-set identity verification
     verified_at   INTEGER,
+    addr_line1    TEXT,                   -- user-editable postal/billing address
+    addr_city     TEXT,
+    addr_country  TEXT,
     created_at    INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS users_by_provider ON users(provider, provider_sub);
@@ -186,3 +189,20 @@ function ensureColumn(table: string, column: string, ddl: string) {
 }
 ensureColumn('users', 'verified', 'verified INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'verified_at', 'verified_at INTEGER');
+ensureColumn('users', 'addr_line1', 'addr_line1 TEXT');
+ensureColumn('users', 'addr_city', 'addr_city TEXT');
+ensureColumn('users', 'addr_country', 'addr_country TEXT');
+// Linked Ethereum wallet (Sign-In-With-Ethereum), bound to a DIAL name the
+// account owns (DIAL-native resolution — no ENS). The wallet is a verifiable
+// credential distinct from the internal owner_address. No UNIQUE constraint
+// (ALTER can't add one) — the app enforces one-wallet-per-account via
+// getByWallet() before linking. wallet_name holds the bound DIAL name.
+ensureColumn('users', 'wallet_address', 'wallet_address TEXT');
+ensureColumn('users', 'wallet_name', 'wallet_name TEXT');
+ensureColumn('users', 'wallet_avatar', 'wallet_avatar TEXT');
+ensureColumn('users', 'wallet_linked_at', 'wallet_linked_at INTEGER');
+
+// EVM mirror — real on-chain writes record their transaction hash + status
+// (pending → confirmed | reverted | failed). Null for mock/Canton rows.
+ensureColumn('chain_writes', 'tx_hash', 'tx_hash TEXT');
+ensureColumn('chain_writes', 'tx_status', 'tx_status TEXT');

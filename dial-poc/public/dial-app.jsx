@@ -59,6 +59,7 @@ function DialApp() {
           {state.route.screen === 'inbox'        && state.loggedIn && <ScreenInbox />}
           {state.route.screen === 'conversation' && state.loggedIn && <ScreenConversation />}
           {state.route.screen === 'admin'        && <ScreenAdmin />}
+          {state.route.screen === 'chains'       && <ScreenChains />}
           {state.route.screen === 'public'       && <ScreenPublic />}
           {state.route.screen === 'cart'         && <ScreenCart />}
         </div>

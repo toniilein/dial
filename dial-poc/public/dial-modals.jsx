@@ -1162,6 +1162,22 @@ function ReleaseModal() {
 // ─────────────────────────────────────────────────────────────
 // Sign-in modal — real auth (email/password, Google, Apple, demo accounts).
 // ─────────────────────────────────────────────────────────────
+// Account drawer — opened from the top-right avatar menu. Hosts the editable
+// account details (email + postal/billing address) on its own, away from the
+// names dashboard.
+function AccountModal() {
+  const { dispatch } = useDial();
+  const close = () => dispatch({ type: 'modal', modal: null });
+  const Card = window.AccountDetailsCard;
+  const Wallet = window.WalletCard;
+  return (
+    <DialModalFrame eyebrow="Your account" title="Account & address" onClose={close}>
+      {Card && <Card />}
+      {Wallet && <Wallet />}
+    </DialModalFrame>
+  );
+}
+
 function LoginModal() {
   const { dispatch } = useDial();
   const close = () => dispatch({ type: 'modal', modal: null });
@@ -1206,7 +1222,7 @@ function AppleIcon({ size = 18 }) {
 // the checkout account step (which passes opts to stay in the flow).
 function AuthPanel({ onClose, opts }) {
   const { dispatch } = useDial();
-  const [mode, setMode]         = React.useState('signin'); // 'signin' | 'register'
+  const [mode, setMode]         = React.useState('signin'); // 'signin' | 'register' | 'forgot'
   const [email, setEmail]       = React.useState('');
   const [password, setPassword] = React.useState('');
   const [name, setName]         = React.useState('');
@@ -1214,9 +1230,18 @@ function AuthPanel({ onClose, opts }) {
   const [busy, setBusy]         = React.useState(false);
   const [error, setError]       = React.useState(null);
   const [prov, setProv]         = React.useState({ google: false, apple: false });
+  const [sent, setSent]         = React.useState(null); // forgot-password result {message, resetUrl?}
 
   React.useEffect(() => { authProviders().then(setProv).catch(() => {}); }, []);
   const done = () => { onClose && onClose(); };
+  const goMode = (m) => { setMode(m); setError(null); setSent(null); };
+
+  const field = (label, node) => (
+    <div style={{ marginBottom: 12 }}>
+      <div className="dial-field-label">{label}</div>
+      <div className="dial-input-wrap">{node}</div>
+    </div>
+  );
 
   const submit = async (e) => {
     e && e.preventDefault && e.preventDefault();
@@ -1227,18 +1252,59 @@ function AuthPanel({ onClose, opts }) {
       done();
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
+
+  const submitForgot = async (e) => {
+    e && e.preventDefault && e.preventDefault();
+    setError(null); setBusy(true);
+    try { setSent(await authForgot(email)); }
+    catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  // ── Forgot-password view (request a reset link by email) ──
+  if (mode === 'forgot') {
+    return (
+      <div>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
+          Enter your account email and we'll send a link to reset your password.
+        </div>
+        {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+          color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>{error}</div>}
+        {sent ? (
+          <div>
+            <div style={{ background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+              padding: '12px 14px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, marginBottom: 12 }}>
+              {sent.message}
+            </div>
+            {sent.resetUrl && (
+              <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) dashed var(--dial-accent)',
+                padding: '12px 14px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12.5, marginBottom: 12 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Dev mode — no email is sent in the PoC.</div>
+                <div className="dial-muted" style={{ marginBottom: 8 }}>Use this link to set a new password (expires in 30 minutes):</div>
+                <a href={sent.resetUrl} style={{ color: 'var(--dial-accent)', fontWeight: 600, wordBreak: 'break-all' }}>{sent.resetUrl}</a>
+              </div>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={submitForgot} autoComplete="off">
+            {field('Email',
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoFocus />)}
+            <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }} disabled={busy}>
+              {busy ? 'Working…' : 'Send reset link'} <ArrowR2 size={14} stroke="#fff" />
+            </button>
+          </form>
+        )}
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: 'var(--dial-border-w) dashed var(--dial-border)',
+          textAlign: 'center', fontSize: 12.5, color: 'var(--dial-muted)' }}>
+          <a onClick={() => goMode('signin')} style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>← Back to sign in</a>
+        </div>
+      </div>
+    );
+  }
   const demo = async (persona) => {
     setError(null); setBusy(true);
     try { await authDemo(dispatch, persona, opts); done(); }
     catch (err) { setError(err.message); } finally { setBusy(false); }
   };
-
-  const field = (label, node) => (
-    <div style={{ marginBottom: 12 }}>
-      <div className="dial-field-label">{label}</div>
-      <div className="dial-input-wrap">{node}</div>
-    </div>
-  );
 
   return (
     <div>
@@ -1267,6 +1333,11 @@ function AuthPanel({ onClose, opts }) {
         <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }} disabled={busy}>
           {busy ? 'Working…' : (mode === 'register' ? 'Create account' : 'Sign in')} <ArrowR2 size={14} stroke="#fff" />
         </button>
+        {mode === 'signin' && (
+          <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12.5 }}>
+            <a onClick={() => goMode('forgot')} style={{ color: 'var(--dial-accent)', cursor: 'pointer', fontWeight: 600 }}>Forgot password?</a>
+          </div>
+        )}
       </form>
 
       <div className="dial-divider-text">or continue with</div>
@@ -1299,6 +1370,77 @@ function AuthPanel({ onClose, opts }) {
 }
 window.AuthPanel = AuthPanel;
 window.LoginForm = AuthPanel; // back-compat for the topbar popover
+
+// ─────────────────────────────────────────────────────────────
+// Reset-password modal — opened by a reset link (#reset=<token>). Sets a new
+// password and signs the user straight in.
+// ─────────────────────────────────────────────────────────────
+function ResetPasswordModal() {
+  const { state, dispatch } = useDial();
+  const token = state.modal.token;
+  const close = () => dispatch({ type: 'modal', modal: null });
+  const [password, setPassword] = React.useState('');
+  const [confirm, setConfirm]   = React.useState('');
+  const [showPw, setShowPw]     = React.useState(false);
+  const [busy, setBusy]         = React.useState(false);
+  const [error, setError]       = React.useState(null);
+
+  const submit = async (e) => {
+    e && e.preventDefault && e.preventDefault();
+    if (password.length < 8) { setError('password must be at least 8 characters'); return; }
+    if (password !== confirm) { setError('passwords do not match'); return; }
+    setError(null); setBusy(true);
+    try {
+      await authReset(dispatch, token, password);
+      close();
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Password updated — you’re signed in.' } });
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="dial-drawer-backdrop" onClick={close}>
+      <div className="dial-drawer" onClick={e => e.stopPropagation()}>
+        <div className="dial-drawer-head">
+          <div style={{ flex: 1 }}>
+            <div className="dial-eyebrow" style={{ marginBottom: 2 }}>Reset password</div>
+            <div className="dial-modal-title">Choose a new password</div>
+          </div>
+          <button className="dial-iconbtn" onClick={close}><XIcon size={16} /></button>
+        </div>
+        <div className="dial-drawer-body">
+          <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
+            Enter a new password for your DIAL account. The reset link expires 30 minutes after it was requested.
+          </div>
+          {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+            color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginBottom: 12, fontSize: 12 }}>{error}</div>}
+          <form onSubmit={submit} autoComplete="off">
+            <div style={{ marginBottom: 12 }}>
+              <div className="dial-field-label">New password</div>
+              <div className="dial-input-wrap">
+                <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="At least 8 characters" autoFocus />
+                <button type="button" className="dial-btn ghost sm" onClick={() => setShowPw(v => !v)} style={{ padding: '4px 8px', fontSize: 11 }}>
+                  {showPw ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div className="dial-field-label">Confirm new password</div>
+              <div className="dial-input-wrap">
+                <input type={showPw ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)}
+                  placeholder="Re-enter password" />
+              </div>
+            </div>
+            <button type="submit" className="dial-btn primary lg" style={{ width: '100%' }} disabled={busy}>
+              {busy ? 'Working…' : 'Set new password'} <ArrowR2 size={14} stroke="#fff" />
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+window.ResetPasswordModal = ResetPasswordModal;
 
 // ─────────────────────────────────────────────────────────────
 // Checkout — GoDaddy-style multi-step purchase flow for the cart.
@@ -1483,7 +1625,7 @@ function CheckoutAccount({ onDone }) {
           {[
             ['Email',           persona.email],
             ['Phone',           persona.phone],
-            ['Billing address', persona.address ? <>{persona.address.line1}<br/>{persona.address.city}, {persona.address.country}</> : '—'],
+            ['Billing address', (() => { const a = id.address || persona.address; return a ? <>{a.line1}<br/>{a.city}, {a.country}</> : '—'; })()],
             ['Account type',    persona.kind === 'enterprise' ? 'Enterprise account' : 'Personal account'],
             persona.regId ? ['Corporate register', <code className="dial-mono" style={{ background: 'transparent', border: 0, padding: 0 }}>{persona.regId} · {persona.country}</code>] : null,
           ].filter(Boolean).map(([k, v], i) => (
@@ -1623,6 +1765,8 @@ function DialModals() {
   const { state } = useDial();
   if (!state.modal) return null;
   if (state.modal.kind === 'login')           return <LoginModal />;
+  if (state.modal.kind === 'account')         return <AccountModal />;
+  if (state.modal.kind === 'reset')           return <ResetPasswordModal />;
   if (state.modal.kind === 'register')        return <RegisterFlow />;
   if (state.modal.kind === 'subname')         return <SubnameModal />;
   if (state.modal.kind === 'release')         return <ReleaseModal />;

@@ -13,3 +13,8 @@ dial.db-wal
 # Backups & logs
 *.bak
 *.log
+
+# Secrets — never commit private keys / RPC creds (EVM mirror deploy)
+.env
+.env.local
+.env.*.local

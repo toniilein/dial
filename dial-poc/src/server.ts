@@ -16,6 +16,11 @@ import * as receptionist from './services/receptionist.ts';
 import * as modes from './services/modes.ts';
 import * as authSvc from './services/auth.ts';
 import * as oauth from './services/oauth.ts';
+import * as feeds from './services/feeds.ts';
+import * as siwe from './services/siwe.ts';
+import * as wallet from './services/wallet.ts';
+import * as dialresolver from './services/dialresolver.ts';
+import * as evm from './services/evm.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -27,9 +32,12 @@ function seedIfEmpty() {
   if (registry.listAll().length > 0 || domainsSvc.listAll().length > 0) return;
 
   // Demo accounts — one-click sign-in maps each to its persona's owner_address.
-  const davidUser = authSvc.ensureDemoUser('david', 'David Palmer', '0xalice123');
-  authSvc.ensureDemoUser('acme', 'Acme Industries GmbH', '0xacme456');
-  authSvc.ensureDemoUser('alice', 'Alice Schäfer', '0xbob789');
+  const davidUser = authSvc.ensureDemoUser('david', 'David Palmer', '0xalice123',
+    { line1: '12 Karlstrasse', city: '80333 Munich', country: 'Germany' });
+  authSvc.ensureDemoUser('acme', 'Acme Industries GmbH', '0xacme456',
+    { line1: 'Hofgartenstrasse 4', city: '80539 Munich', country: 'Germany' });
+  authSvc.ensureDemoUser('alice', 'Alice Schäfer', '0xbob789',
+    { line1: 'Friedrichshain 47', city: '10243 Berlin', country: 'Germany' });
   authSvc.setVerified(davidUser.id, true); // David is identity-verified for the demo
 
   // David — consumer with a .dial name, a receptionist, a mocked EVM address,
@@ -53,15 +61,8 @@ function seedIfEmpty() {
       active: 1,
     });
 
-    // A few social links so the public "address page" reads like a Linktree.
-    resolver.setText('0xalice123', 'david.dial', 'x', '@davidpalmer');
-    resolver.setText('0xalice123', 'david.dial', 'telegram', '@davidpalmer');
-    resolver.setText('0xalice123', 'david.dial', 'linkedin', 'in/davidpalmer');
-    resolver.setText('0xalice123', 'david.dial', 'url', 'davidpalmer.example');
-    // Portrait for the public profile hero (served from /public).
-    resolver.setText('0xalice123', 'david.dial', 'avatar', '/david-palmer.png');
-    // Profile composition — availability modes (partnership primary, hiring)
-    // plus content modules (conferences/appearances, latest signals).
+    // Profile composition — active modules: partnership (primary/featured) and
+    // hiring availability plus conferences/appearances and latest signals.
     modes.setActiveSet('0xalice123', 'david.dial', ['conference', 'partnership', 'hiring', 'signals'], 'partnership');
 
     // Drive several full conversations through the engine so the inbox is full.
@@ -126,7 +127,7 @@ seedIfEmpty();
 
 const app = express();
 app.set('trust proxy', true); // hosted behind a proxy (Replit) — for correct protocol/host
-app.use(express.json());
+app.use(express.json({ limit: '1mb' })); // 1mb headroom for inline (data-URL) profile pictures
 app.use(express.urlencoded({ extended: true })); // Apple OAuth posts form_post
 
 // Tiny request logger so the demo flow is visible in the terminal.
@@ -217,6 +218,32 @@ app.post('/v1/auth/login', (req, res) => {
   catch (e) { res.status(401).json({ error: (e as Error).message }); }
 });
 
+// Forgot password — mint a reset link for a manual account. Always responds
+// 200 with a generic message (so we don't reveal which emails are registered);
+// the PoC has no mailer, so when an account exists the link is returned in
+// `resetUrl` for the UI to surface. In production this branch would email the
+// link instead and never return it. Toggle that off with EMAIL_RESET_LINK=true.
+const RETURN_RESET_LINK = process.env.EMAIL_RESET_LINK !== 'true';
+app.post('/v1/auth/forgot', (req, res) => {
+  if (authThrottled(req, res)) return;
+  const reset = authSvc.requestPasswordReset(String(req.body?.email ?? ''));
+  const body: { ok: true; message: string; resetUrl?: string } = {
+    ok: true,
+    message: 'If an account with that email exists, a password reset link is on its way.',
+  };
+  if (reset && RETURN_RESET_LINK) body.resetUrl = `${baseUrl(req)}/#reset=${encodeURIComponent(reset.token)}`;
+  res.json(body);
+});
+
+// Complete a reset: verify the token, set the new password, and sign the user
+// in (returns a fresh session token, same shape as login).
+app.post('/v1/auth/reset', (req, res) => {
+  if (authThrottled(req, res)) return;
+  const { token, password } = req.body ?? {};
+  try { finishLogin(res, authSvc.resetPassword(String(token ?? ''), String(password ?? ''))); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+
 // One-click demo accounts (David / Acme / Alice) — part of the PoC, so enabled
 // by default (including on hosted deploys). Set ENABLE_DEMO_LOGIN=false to
 // turn them off for a real production launch.
@@ -237,7 +264,99 @@ app.get('/v1/auth/me', (req, res) => {
   res.json({ user: authSvc.publicUser(u) });
 });
 
+// Update the signed-in user's editable profile (postal/billing address).
+app.patch('/v1/auth/me', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const u = authSvc.getByAddress(c);
+  if (!u) return res.status(404).json({ error: 'account not found' });
+  const a = req.body?.address ?? {};
+  const updated = authSvc.updateProfile(u.id, { line1: a.line1, city: a.city, country: a.country });
+  res.json({ user: authSvc.publicUser(updated!) });
+});
+
 app.post('/v1/auth/logout', (_req, res) => res.json({ ok: true })); // stateless: client drops the token
+
+// =====================================================
+// Ethereum wallet link — Sign-In-With-Ethereum (EIP-4361), DIAL-native binding
+// =====================================================
+// Proves control of a wallet via SIWE (chain-agnostic) and binds it to a DIAL
+// name the account owns (DIAL-native reverse resolution — no ENS). See siwe.ts
+// (signature verification) and dialresolver.ts (name binding/resolution).
+
+// The SIWE `domain` (anti-phishing binding) is the request host, e.g. the value
+// the wallet shows the user. We build the message with it and re-check it here.
+function siweDomain(req: Request): string {
+  return req.get('host') || new URL(baseUrl(req)).host;
+}
+// viem is an optional dependency (only SIWE verification needs it). If a deploy
+// hasn't run `npm install` yet, fail soft with a clear 503 instead of a 500.
+function walletUnavailable(res: Response, e: Error): boolean {
+  if (/Cannot find (package|module) ['"]viem|ERR_MODULE_NOT_FOUND/.test(e.message)) {
+    res.status(503).json({ error: 'Wallet linking is not enabled on this server yet (run `npm install`).' });
+    return true;
+  }
+  return false;
+}
+
+// Step 1 — mint a nonce + server-built SIWE message for the caller to sign.
+app.post('/v1/wallet/nonce', async (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  if (authThrottled(req, res)) return;
+  const u = authSvc.getByAddress(c);
+  if (!u) return res.status(404).json({ error: 'account not found' });
+  const address = String(req.body?.address ?? '').trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    return res.status(400).json({ error: 'a valid 0x wallet address is required' });
+  }
+  try {
+    const { message } = await wallet.prepare(u.id, address, siweDomain(req), baseUrl(req) + '/');
+    res.json({ message });
+  } catch (e) {
+    if (!walletUnavailable(res, e as Error)) res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+// Step 2 — verify the SIWE signature and bind the proven wallet to a DIAL name
+// the account owns (DIAL-native — no ENS).
+app.post('/v1/wallet/link', async (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const u = authSvc.getByAddress(c);
+  if (!u) return res.status(404).json({ error: 'account not found' });
+  const { message, signature } = req.body ?? {};
+  if (typeof message !== 'string' || typeof signature !== 'string') {
+    return res.status(400).json({ error: 'message and signature required' });
+  }
+  try {
+    const proven = await wallet.link(u.id, u.owner_address, message, signature, siweDomain(req));
+    const updated = authSvc.setWallet(u.id, proven);
+    // Decentralisation bootstrap: hand on-chain address-control of the bound name
+    // to the proven consumer wallet (fire-and-forget; the relayed tx settles async).
+    if (evm.EVM_ENABLED && proven.name) {
+      evm.enqueueSetController(proven.name, proven.address)
+        .catch(e => console.error('[evm] setController failed:', (e as Error).message));
+    }
+    res.json({ user: authSvc.publicUser(updated!) });
+  } catch (e) {
+    if (walletUnavailable(res, e as Error)) return;
+    // wallet.link tags the "already linked elsewhere" case for a 409.
+    const code = (e as any).code === 409 ? 409 : 400;
+    res.status(code).json({ error: (e as Error).message });
+  }
+});
+
+// Remove the linked wallet (and the DIAL-native address record it bound).
+app.post('/v1/wallet/unlink', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const u = authSvc.getByAddress(c);
+  if (!u) return res.status(404).json({ error: 'account not found' });
+  if (u.wallet_address) dialresolver.unbindWallet(u.owner_address, u.wallet_name, u.wallet_address);
+  const updated = authSvc.clearWallet(u.id);
+  res.json({ user: authSvc.publicUser(updated!) });
+});
 
 // ── Admin — username/password login, then list + verify users ──
 app.post('/v1/admin/login', (req, res) => {
@@ -536,16 +655,18 @@ app.get('/v1/registry', (req, res) => {
 // §4.3 Namespace Lookup — Resolver
 // =====================================================
 
-// 3.3 — reverse resolution (privacy gate stub: require caller header).
+// 3.3 — reverse resolution (address → DIAL name), require caller header.
 // Declared FIRST so `/v1/resolver/reverse` isn't matched by `/v1/resolver/:name`.
+// Uses the DIAL-native, proof-backed resolver: only returns a name when the
+// address proved control via SIWE and still owns that name (no unproven claims).
 app.get('/v1/resolver/reverse', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
   const address = String(req.query.address ?? '');
   if (!address) return res.status(400).json({ error: 'address required' });
-  const name = resolver.reverse(address);
-  if (!name) return res.status(404).json({ error: 'no name for address' });
-  res.json({ name });
+  const found = dialresolver.reverse(address);
+  if (!found) return res.status(404).json({ error: 'no confirmed name for address' });
+  res.json({ name: found.name, avatar: found.avatar, confirmed: true });
 });
 
 // 3.2 — chain-specific address lookup
@@ -584,8 +705,11 @@ app.post('/v1/resolver/:name/addr/:chain', (req, res) => {
   if (chain.startsWith('eip155') && !/^0x[0-9a-fA-F]{40}$/.test(value.trim())) {
     return res.status(400).json({ error: 'invalid EVM address — expected 0x followed by 40 hex characters' });
   }
+  // Store EVM addresses lowercased so reverse lookups + equality compare cleanly
+  // (SIWE emits EIP-55 checksummed addresses; records must normalize to match).
+  const normalized = chain.startsWith('eip155') ? value.trim().toLowerCase() : value.trim();
   try {
-    const rec = resolver.setAddr(c, req.params.name.toLowerCase(), chain, value.trim());
+    const rec = resolver.setAddr(c, req.params.name.toLowerCase(), chain, normalized);
     res.json(rec);
   } catch (e) {
     const msg = (e as Error).message;
@@ -593,12 +717,27 @@ app.post('/v1/resolver/:name/addr/:chain', (req, res) => {
   }
 });
 
+// A profile-picture value is acceptable as a hosted path, a remote http(s) URL,
+// or a small inline base64 image (data-URL). data:image/svg is rejected — even
+// inside <img> we keep to raster types to avoid script-bearing SVG payloads.
+function isValidAvatar(v: string): boolean {
+  if (/^\/[^\s]+$/.test(v)) return true;
+  if (/^https?:\/\/\S+$/i.test(v)) return true;
+  if (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(v)) return v.length <= 1_400_000;
+  return false;
+}
+
 // Set or clear a text record (empty value deletes it — used by social links).
 app.post('/v1/resolver/:name/text/:key', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
   const value = req.body?.value;
   if (typeof value !== 'string') return res.status(400).json({ error: 'value required' });
+  // The profile picture is stored as a text record (a hosted path, a remote URL,
+  // or a small inline data-URL). Validate so we never persist a non-image blob.
+  if (req.params.key === 'avatar' && value.trim() !== '' && !isValidAvatar(value.trim())) {
+    return res.status(400).json({ error: 'invalid profile picture — upload a PNG, JPEG, GIF, or WebP image under 1 MB' });
+  }
   try {
     const name = req.params.name.toLowerCase();
     const key = req.params.key;
@@ -638,8 +777,55 @@ app.get('/v1/billing/quote', (req, res) => {
 });
 
 // =====================================================
-// On-chain mirrors (mocked Canton + EVM)
+// On-chain mirrors (Canton mocked; EVM real when DIAL_EVM_ENABLED=true)
 // =====================================================
+// EVM network/contract info for the UI (network, chainId, contract, explorer).
+// Declared before `/v1/chains/:chain` so 'config' isn't matched as a chain.
+app.get('/v1/chains/config', async (_req, res) => {
+  try { res.json(await evm.config()); }
+  catch (e) { res.json({ enabled: evm.EVM_ENABLED, error: (e as Error).message }); }
+});
+
+// Trustless on-chain lookup — reads a name's record live from the DialRegistry
+// contract (not DIAL's DB). Declared before `/v1/chains/:chain` to avoid capture.
+app.get('/v1/chains/onchain/:name', async (req, res) => {
+  if (!evm.EVM_ENABLED) return res.status(503).json({ error: 'on-chain mirror is not enabled' });
+  try { res.json(await evm.readRecord(req.params.name.toLowerCase())); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+
+// Consumer-controlled address update (decentralised). Two steps:
+//   1. prepare → DIAL returns the EIP-712 typed data the consumer signs.
+//   2. relay   → consumer's signature; DIAL relays setAddressesSigned + updates DB.
+// Owner-gated; only works for names whose on-chain controller is the caller's wallet.
+app.post('/v1/chains/onchain/:name/prepare-addr', async (req, res) => {
+  const c = requireCaller(req, res); if (!c) return;
+  if (!evm.EVM_ENABLED) return res.status(503).json({ error: 'on-chain mirror is not enabled' });
+  const name = req.params.name.toLowerCase();
+  if ((registry.ownerOf(name) || '').toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
+  const value = String(req.body?.value ?? '').trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) return res.status(400).json({ error: 'a valid EVM address is required' });
+  try { res.json(await evm.prepareAddressUpdate(name, { 'eip155:1': value.toLowerCase() })); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+
+app.post('/v1/chains/onchain/:name/relay-addr', async (req, res) => {
+  const c = requireCaller(req, res); if (!c) return;
+  if (!evm.EVM_ENABLED) return res.status(503).json({ error: 'on-chain mirror is not enabled' });
+  const name = req.params.name.toLowerCase();
+  if ((registry.ownerOf(name) || '').toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
+  const { nameHash, addressesHash, seq, deadline, signature, value } = req.body ?? {};
+  if (![nameHash, addressesHash, seq, deadline, signature, value].every(x => typeof x === 'string')) {
+    return res.status(400).json({ error: 'nameHash, addressesHash, seq, deadline, signature, value required' });
+  }
+  try {
+    const out = await evm.enqueueSetAddressesSigned(nameHash, addressesHash, seq, deadline, signature);
+    // Reflect the consumer-set address in DIAL's DB (the public page / resolver).
+    resolver.setAddr(c, name, 'eip155:1', String(value).toLowerCase());
+    res.json({ ...out, name });
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+
 app.get('/v1/chains/:chain', (req, res) => {
   const chain = req.params.chain.toLowerCase();
   if (chain !== 'canton' && chain !== 'evm') return res.status(400).json({ error: 'unknown chain' });
@@ -661,17 +847,35 @@ app.get('/v1/chains/:chain/:name', (req, res) => {
 // =====================================================
 
 // Public address page — no auth. Profile + chain addresses + receptionist +
-// active profile modes.
+// active profile modules.
 app.get('/v1/public/:name', (req, res) => {
   const name = req.params.name.toLowerCase();
   const page = receptionist.publicPage(name);
   if (!page) return res.status(404).json({ error: 'not found' });
   const owner = registry.ownerOf(name);
   const ownerUser = owner ? authSvc.getByAddress(owner) : null;
-  res.json({ ...page, modes: modes.publicModes(name), owner_verified: !!(ownerUser && ownerUser.verified) });
+
+  // Latest-posts module: attach the name's curated X / LinkedIn post embeds.
+  // The module has no static content, so when nothing is configured we drop it
+  // entirely rather than render an empty block.
+  const embeds = feeds.publicEmbeds(name);
+  const showEmbeds = feeds.hasEmbeds(name);
+  const withEmbeds = modes.publicModes(name)
+    .filter(m => m.key !== 'signals' || showEmbeds)
+    .map(m => m.key === 'signals' ? { ...m, embeds } : m);
+
+  res.json({ ...page, modes: withEmbeds, owner_verified: !!(ownerUser && ownerUser.verified) });
 });
 
-// Owner: full mode catalog with on/off + primary state.
+// Public: a name's social post embeds (X handle + LinkedIn embed URLs). Same
+// data the Latest-posts module renders; exposed standalone for clients/widgets.
+app.get('/v1/public/:name/embeds', (req, res) => {
+  const name = req.params.name.toLowerCase();
+  if (!registry.get(name)) return res.status(404).json({ error: 'not found' });
+  res.json({ name, embeds: feeds.publicEmbeds(name) });
+});
+
+// Owner: full module catalog with on/off state.
 app.get('/v1/profile/:name/modes', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
@@ -683,7 +887,7 @@ app.get('/v1/profile/:name/modes', (req, res) => {
   }
 });
 
-// Owner: toggle one mode (active / primary).
+// Owner: toggle one module on/off, or make it the primary (featured) module.
 app.put('/v1/profile/:name/modes/:key', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
@@ -699,17 +903,63 @@ app.put('/v1/profile/:name/modes/:key', (req, res) => {
   }
 });
 
-// Owner: talk to the mode agent in natural language.
-app.post('/v1/profile/:name/modes/agent', (req, res) => {
+// Owner: edit a module's copy (title / status / body / CTA / detail cards).
+app.put('/v1/profile/:name/modes/:key/content', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
-  const message = req.body?.message;
-  if (typeof message !== 'string') return res.status(400).json({ error: 'message required' });
   try {
-    res.json(modes.agent(c, req.params.name.toLowerCase(), message));
+    res.json({ modes: modes.setContent(c, req.params.name.toLowerCase(), req.params.key, req.body) });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' || msg === 'unknown module' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner: revert a module's copy to the catalog default.
+app.delete('/v1/profile/:name/modes/:key/content', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    res.json({ modes: modes.resetContent(c, req.params.name.toLowerCase(), req.params.key) });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' || msg === 'unknown module' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner: add an appearance item to a module (e.g. conference appearances).
+app.post('/v1/profile/:name/modes/:key/items', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    res.json({ modes: modes.addItem(c, req.params.name.toLowerCase(), req.params.key, req.body) });
   } catch (e) {
     const msg = (e as Error).message;
     res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner: edit an appearance item.
+app.put('/v1/profile/:name/modes/:key/items/:id', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    res.json({ modes: modes.updateItem(c, req.params.name.toLowerCase(), req.params.key, req.params.id, req.body) });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' || msg === 'appearance not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Owner: delete an appearance item.
+app.delete('/v1/profile/:name/modes/:key/items/:id', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  try {
+    res.json({ modes: modes.deleteItem(c, req.params.name.toLowerCase(), req.params.key, req.params.id) });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' || msg === 'appearance not found' ? 404 : 400)).json({ error: msg });
   }
 });
 

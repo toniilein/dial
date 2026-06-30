@@ -855,7 +855,7 @@
   <span class="tag">Product Spec · Draft</span>
   <h1>DIAL<span class="dot">.</span> Requirements &amp; Solution Architecture</h1>
   <p class="sub">Phase 0 — <strong>namespace issuance</strong> for developers, enterprises, and consumers. Enterprises register their own corporate domain (e.g. <code>.acme</code>); developers and consumers register names under DIAL's <code>.dial</code> domain. Non-custodial, powered by the <strong>Vodafone Pairpoint Identity Hub</strong>. A name like <code>alice.dial</code> or <code>finance.acme</code> maps to addresses on Canton and an EVM-compatible chain.</p>
-  <p class="meta">Version 0.2 · Draft for review · 2026-05-15</p>
+  <p class="meta">Version 0.3 · Draft for review · 2026-05-15</p>
 </header>
 
 <nav class="toc">
@@ -976,7 +976,7 @@
 <h2 id="fr">4. Functional Map &amp; Requirements</h2>
 
 <h3>4.0 Functional Map</h3>
-<p>DIAL's capabilities, grouped by domain. Each leaf is a numbered requirement — its full specification is in the matching table below (§4.1–§4.7, one per group).</p>
+<p>DIAL's capabilities, grouped by domain. Each leaf is a numbered requirement — its full specification is in the matching table below. Groups 1–7 (mapped here) cover the namespace-layer core. §4.8–§4.9 below cover the personal-identity-hub layer the DIAL App also ships: every name has a public profile, a configurable receptionist that takes messages from visitors, and an owner inbox.</p>
 <div class="ftree">
   <div class="ftree-root">DIAL</div>
   <div class="ftree-cols">
@@ -1069,7 +1069,7 @@
     <tr><td>2.2</td><td>Register a namespace. Consumers register under <code>.dial</code>.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>2.3</td><td>Annual renewal flow with a 30-day grace period.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>2.4</td><td>Transfer namespace ownership to another verified party.</td><td><span class="pill should">SHOULD</span></td></tr>
-    <tr><td>2.5</td><td>Owner edits the namespace's records — chain addresses, resolver, metadata.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>2.5</td><td>Owner edits the namespace's records — chain addresses (CAIP-2 keyed), resolver, and text records. Standard text keys: <code>avatar</code>, <code>url</code>, <code>email</code>, plus social: <code>x</code>, <code>telegram</code>, <code>linkedin</code>. Free-form keys are also allowed.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>2.6</td><td>Owner releases the namespace; it returns to the pool after the grace period.</td><td><span class="pill should">SHOULD</span></td></tr>
     <tr><td>2.7</td><td>Owner creates subnamespaces under their namespace (e.g. <code>finance.acme</code>), each independently owned and configurable.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>2.8</td><td>Owner edits a subnamespace's records.</td><td><span class="pill must">MUST</span></td></tr>
@@ -1097,7 +1097,8 @@
     <tr><td>4.1</td><td>Cached client SDK (JS/TS, Swift, Kotlin) embedding resolution into wallets, dapps, and backends, with offline-tolerant fallback. Ships at Phase 0.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>4.2</td><td>Consumer-facing DIAL App to claim and manage a namespace and send / receive by name.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>4.3</td><td>A single authentication method for all API consumers (OAuth2 client-credentials or API keys), with per-key rate limiting.</td><td><span class="pill must">MUST</span></td></tr>
-    <tr><td>4.4</td><td>User sign-in for the DIAL App via OAuth / OIDC (Google, Apple). Pairpoint AA infrastructure derives the user's on-chain account from the sign-in identity — keys remain non-custodial.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>4.4</td><td>User sign-in for the DIAL App: <strong>Google</strong> and <strong>Apple</strong> OAuth/OIDC, plus <strong>email + password</strong> (scrypt-hashed). Bearer session token (<code>Authorization: Bearer</code>) issued at sign-in; per-IP throttling on credential endpoints. Pairpoint AA infrastructure derives the user's on-chain account from the sign-in identity — keys remain non-custodial.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>4.5</td><td><strong>Admin panel</strong> for DIAL operations staff — separate username + password login, independent admin token. Lists accounts and manually sets the verified flag when Pairpoint IDH coverage is unavailable for a market or persona (fallback for §4.6).</td><td><span class="pill must">MUST</span></td></tr>
   </tbody>
 </table>
 </details>
@@ -1106,10 +1107,10 @@
 <table>
   <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
   <tbody>
-    <tr><td>5.1</td><td><strong>Canton</strong> is a first-class Phase 0 chain — a name can bind a Canton party.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>5.1</td><td><strong>Canton</strong> is a first-class Phase 0 chain — a name can bind a Canton party. DIAL is the namespace controller for every DIAL-issued party: the canonical party id is <code>&lt;name&gt;::1220&lt;sha256(DIAL signing key)&gt;</code> (multihash <code>1220</code> = SHA-256 32-byte digest). DIAL auto-binds this party at registration so the user doesn't have to set it by hand.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>5.2</td><td><strong>One EVM-compatible chain</strong> is first-class at Phase 0 — a name can bind an EVM address. Chain bindings use CAIP-2 (chain IDs) / CAIP-10 (accounts).</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>5.3</td><td>Each supported chain hosts a <code>DialRegistry</code> contract holding DIAL-signed copies, verifiable locally — the DIAL backend remains the source of truth.</td><td><span class="pill must">MUST</span></td></tr>
-    <tr><td>5.4</td><td>Binding an address to a name requires proof of control of that address — EIP-191 / EIP-712 on EVM, Daml party auth on Canton.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>5.4</td><td>Binding an address to a name requires proof of control of that address — EIP-191 / EIP-712 on EVM, Daml party auth on Canton. The resolver also validates address shape per chain (EVM: <code>0x</code> followed by 40 hex characters; Canton: <code>&lt;hint&gt;::&lt;namespace&gt;</code>) before accepting the write.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>5.5</td><td>A sync service propagates DIAL-signed Registry / Resolver state to each chain's on-chain copy — idempotent and retryable.</td><td><span class="pill must">MUST</span></td></tr>
   </tbody>
 </table>
@@ -1122,6 +1123,7 @@
     <tr><td>6.1</td><td>Enterprises verify once through Vodafone Pairpoint Identity Hub before issuing a domain. DIAL stores only the resulting attestation hash — no PII.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>6.2</td><td>Consumers verify once through Vodafone Pairpoint Identity Hub before registering a namespace. DIAL stores only the attestation hash.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>6.3</td><td>Step-up re-verification required on Vodafone-reported elevated-risk signals, or on high-value transfers / transfers to unverified counterparties.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>6.4</td><td><strong>Admin-set verification fallback.</strong> Where Pairpoint IDH coverage is unavailable for a market or persona, a DIAL admin (§4.5) can mark an account verified after manual review. Audit-logged; the same attestation contract applies — DIAL stores no PII, only the verification flag and timestamp.</td><td><span class="pill should">SHOULD</span></td></tr>
   </tbody>
 </table>
 </details>
@@ -1136,6 +1138,32 @@
     <tr><td>7.4</td><td>Recurring annual renewal billing, with reminders ahead of the grace period.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>7.5</td><td>Verified-user discount on name registration — verified consumers receive a fixed percentage off list price (Phase 0: 25%). Applied at quote time so the discount is visible in the cart before payment.</td><td><span class="pill must">MUST</span></td></tr>
     <tr><td>7.6</td><td>Persistent cart and multi-step checkout in the DIAL App. The basket survives sign-in / sign-out; checkout sequences Review → Sign-in → Verify identity (if needed) → Pay → Done. Out-of-cart actions (renew, release) bypass the cart.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-8"><summary>4.8 Public Profile</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>8.1</td><td><strong>Public address page</strong> at <code>/&lt;name&gt;</code> (e.g. <code>/alice.dial</code>) composes the name into a single shareable surface: profile (display name, headline, bio, avatar), chain addresses, social links (§2.5), the receptionist greeting (if active, §4.9), and any active profile modes (§8.3). Verified owners carry a verified badge.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>8.2</td><td><strong>Profile modes catalog</strong> — switchable blocks the owner toggles on/off to compose their profile. Phase 0 catalog: <code>Conferences</code>, <code>Partnership</code>, <code>Hiring</code>, <code>Latest signals</code>, <code>Closed</code>. Two kinds: <em>modes</em> (mutually-exclusive availability tabs — one can be primary) and <em>modules</em> (stacked standalone blocks like Conferences and Latest signals).</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>8.3</td><td><strong>Mode toggling</strong> — owner switches modes on/off directly, or talks to a scripted mode agent in natural language ("turn on hiring", "close the profile", "make partnership primary"). State is per-name; published immediately to the public page.</td><td><span class="pill should">SHOULD</span></td></tr>
+    <tr><td>8.4</td><td>Public-page consumers (search engines, link previews, dapp loaders) get the same composed JSON via <code>GET /v1/public/:name</code> — no auth, cacheable.</td><td><span class="pill must">MUST</span></td></tr>
+  </tbody>
+</table>
+</details>
+
+<details class="fr" id="fr-4-9"><summary>4.9 Visitor Intake &amp; Owner Inbox</summary>
+<table>
+  <thead><tr><th>ID</th><th>Requirement</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>9.1</td><td><strong>Receptionist config</strong> — owner configures the receptionist attached to a name: receptionist name, owner-display name, headline, bio, greeting, forwarding email, active flag. One receptionist per name.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>9.2</td><td><strong>Visitor chat</strong> on the public page. No visitor auth; per-IP rate limit (Phase 0: 20 messages / minute) and per-name soft cap; 2,000-char message limit; conversation bound to a server-issued <code>session_token</code> so a leaked conversation id can't be hijacked.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>9.3</td><td><strong>Scripted slot-filling intake</strong> — the receptionist collects the visitor's <em>name</em>, <em>contact</em>, <em>topic</em>, and <em>desired next step</em>. Opportunistic extraction (email/phone regex, "I'm X from Y" patterns) plus explicit re-asks for missing fields. Deterministic — no external LLM dependency in Phase 0.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>9.4</td><td><strong>Summarization → owner inbox.</strong> Once all required fields are collected the conversation is summarised (subject + body + structured fields + full transcript) and dropped into the owner's inbox. Idempotent and self-healing — re-finalisation is a no-op.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>9.5</td><td><strong>Owner inbox</strong> — list of inbox items per owner with unread count, item detail (subject, body, structured fields, full transcript), and read-state marking on open.</td><td><span class="pill must">MUST</span></td></tr>
+    <tr><td>9.6</td><td><strong>Email forwarding</strong> — when configured, the summary is delivered to the receptionist's <code>forwarding_email</code> alongside the inbox row. Phase 0 mocked; production wires a transactional email provider.</td><td><span class="pill should">SHOULD</span></td></tr>
   </tbody>
 </table>
 </details>
@@ -1350,6 +1378,11 @@ flowchart TB
     <tr><td><strong>Registrar</strong><br><small>issuance</small></td><td>Issues corporate domains to verified enterprises (e.g. <code>.acme</code>) and names under DIAL's <code>.dial</code> domain to developers and consumers; namespace owners create subnames under their own domain. Enforces reserved-name and validity rules. Calls Pairpoint IDH for identity verification before issuance.</td><td><code>register(label, owner, duration)</code><br><code>renew(label, duration)</code><br><code>available(label)</code></td></tr>
     <tr><td><strong>Billing</strong></td><td>USDC pricing tiers, invoicing, payment collection. Releases the Registrar to issue once payment is captured.</td><td><code>POST /v1/billing/checkout</code><br><code>POST /v1/billing/renew</code></td></tr>
     <tr><td><strong>Chain Sync</strong></td><td>Subscribes to Registry / Resolver change events and writes DIAL-signed copies to the on-chain <code>DialRegistry</code> + <code>DialResolver</code> contracts on Canton and the EVM-compatible chain. Stateless, idempotent, retryable.</td><td>internal — bus consumer</td></tr>
+    <tr><td><strong>Auth</strong><br><small>user sign-in (§4.4)</small></td><td>Manual email/password (scrypt), Google OAuth, Apple OAuth (form_post), demo accounts. Issues a Bearer session token at sign-in; every protected route resolves the caller's <code>owner_address</code> from that token. Per-IP throttling on credential endpoints.</td><td><code>POST /v1/auth/register</code><br><code>POST /v1/auth/login</code><br><code>GET /v1/auth/google/start</code><br><code>GET/POST /v1/auth/{google,apple}/callback</code><br><code>GET /v1/auth/me</code></td></tr>
+    <tr><td><strong>Admin</strong><br><small>ops console (§4.5)</small></td><td>Separate username/password login for DIAL operations staff. Lists accounts and manually sets the verified flag where Pairpoint IDH coverage is unavailable (§4.6 row 6.4).</td><td><code>POST /v1/admin/login</code><br><code>GET /v1/admin/users</code><br><code>POST /v1/admin/users/:id/verify</code></td></tr>
+    <tr><td><strong>Public Page</strong><br><small>composition (§4.8)</small></td><td>Composes profile + chain addresses + text records + receptionist greeting + active profile modes into a single anonymous JSON for the public page (<code>/&lt;name&gt;</code>) and link-preview consumers. Cacheable.</td><td><code>GET /v1/public/:name</code></td></tr>
+    <tr><td><strong>Receptionist</strong><br><small>visitor intake (§4.9)</small></td><td>Per-name configurable intake agent. Scripted slot-filling collects visitor name + contact + topic + next step over a session-bound conversation, then summarises and drops into the owner's inbox. Idempotent finalisation.</td><td><code>POST /v1/public/message</code><br><code>PUT /v1/receptionist/:name</code><br><code>GET /v1/inbox</code><br><code>GET /v1/inbox/:id</code></td></tr>
+    <tr><td><strong>Profile Modes</strong><br><small>modular profile (§4.8)</small></td><td>Per-name catalog of switchable blocks (Conferences, Partnership, Hiring, Latest signals, Closed). Owner toggles directly or via a scripted mode agent ("turn on hiring", "close the profile"). Drives what the public page renders.</td><td><code>GET /v1/profile/:name/modes</code><br><code>PUT /v1/profile/:name/modes/:key</code><br><code>POST /v1/profile/:name/modes/agent</code></td></tr>
   </tbody>
 </table>
 <p class="meta"><strong>ENS lineage.</strong> Registry / Resolver / Registrar are the same three components ENS uses. The difference: ENS puts Registry + Resolver on L1 contracts; DIAL keeps them off-chain (Postgres) as canonical and propagates signed copies on-chain via Chain Sync. Reason — Pairpoint operates an identity-verified issuance flow that doesn't fit a permissionless L1 Registrar.</p>
@@ -1670,18 +1703,25 @@ flowchart TD
 <p>Two-level namespace: a <strong>domain</strong> is the apex (<code>.dial</code> operated by DIAL, or a corporate domain like <code>.acme</code>), a <strong>namespace</strong> is a name under a domain (<code>alice.dial</code>, <code>finance.acme</code>), and a <strong>subname</strong> is a third level under a namespace (<code>pay.alice.dial</code>). Records (chain bindings, text) attach to namespaces and subnames — never to the apex domain itself.</p>
 <div class="mermaid">
 erDiagram
+  USER ||--|| OWNER : "auth account for"
   OWNER ||--o{ DOMAIN : owns
   OWNER ||--o{ NAMESPACE : owns
   OWNER ||--o{ SUBNAME : owns
   OWNER ||--|| KYC_RECORD : "verified via"
+  OWNER ||--o{ INBOX_ITEM : reads
   DOMAIN ||--o{ NAMESPACE : "parent of"
   NAMESPACE ||--o{ SUBNAME : "parent of"
   NAMESPACE ||--o{ CHAIN_BINDING : has
   NAMESPACE ||--o{ TEXT_RECORD : has
+  NAMESPACE ||--o| RECEPTIONIST : "intake via"
+  NAMESPACE ||--o| PROFILE_MODES : "profile via"
   SUBNAME ||--o{ CHAIN_BINDING : has
   SUBNAME ||--o{ TEXT_RECORD : has
   NAMESPACE ||--o{ BILLING_RECORD : "billed via"
   DOMAIN ||--o{ BILLING_RECORD : "billed via"
+  RECEPTIONIST ||--o{ CONVERSATION : has
+  CONVERSATION ||--o{ MESSAGE : has
+  CONVERSATION ||--o| INBOX_ITEM : "summarised to"
 
   OWNER {
     uuid id PK
@@ -1753,11 +1793,74 @@ erDiagram
     timestamp captured_at
     string receipt_ref
   }
+  USER {
+    uuid id PK
+    enum provider "manual, google, apple, demo"
+    string provider_sub "OAuth subject id"
+    string email
+    string password_hash "scrypt — manual only"
+    string display_name
+    uuid owner_id FK
+    bool verified "admin-set fallback per 6.4"
+    timestamp verified_at
+    timestamp created_at
+  }
+  RECEPTIONIST {
+    uuid id PK
+    uuid namespace_id FK
+    string receptionist_name
+    string owner_display_name
+    string headline
+    string bio
+    string greeting
+    string forwarding_email
+    bool active
+    timestamp updated_at
+  }
+  CONVERSATION {
+    uuid id PK
+    uuid namespace_id FK
+    string session_token "binds continuation"
+    string visitor_name
+    string visitor_contact
+    string visitor_org
+    string topic
+    string urgency
+    string next_step
+    enum status "open, collecting_info, ready_for_summary, summarized, delivered"
+    string summary
+    string asking "last field asked for"
+    timestamp delivered_at
+    timestamp created_at
+  }
+  MESSAGE {
+    uuid id PK
+    uuid conversation_id FK
+    enum role "visitor or receptionist"
+    string content
+    timestamp created_at
+  }
+  INBOX_ITEM {
+    uuid id PK
+    uuid owner_id FK
+    uuid conversation_id FK "UNIQUE — one inbox row per conversation"
+    string subject
+    string body
+    bool is_read
+    timestamp created_at
+  }
+  PROFILE_MODES {
+    uuid id PK
+    uuid namespace_id FK
+    json active "map of mode key to boolean"
+    string primary "key of the primary mode"
+    timestamp updated_at
+  }
 </div>
 
 <p><strong>State distribution (Phase 0):</strong></p>
 <ul>
-  <li><strong>DIAL backend (canonical):</strong> domains, namespaces, subnames, chain bindings, text records, billing — Postgres. Vault / HSM holds <em>DIAL's own</em> signing key (not user keys — DIAL is non-custodial).</li>
+  <li><strong>DIAL backend (canonical):</strong> users (auth accounts), domains, namespaces, subnames, chain bindings, text records, billing, receptionist configs, conversations + messages, owner inbox, profile modes — Postgres. Vault / HSM holds <em>DIAL's own</em> signing key (not user keys — DIAL is non-custodial). Manual-account password hashes use scrypt.</li>
   <li><strong>Canton + EVM-compatible chain:</strong> each hosts a <code>DialRegistry</code> contract storing <code>hash(fqn, owner, expires) + DIAL signature + lastUpdatedAt</code> — a signed mirror of the canonical row.</li>
   <li><strong>Vodafone Pairpoint IDH (external):</strong> PII and identity documents — KYC docs, KYB business records, liveness samples. DIAL only holds the resulting attestation hash.</li>
   <li><strong>Redis:</strong> resolver hot cache (fqn → chain-keyed address record), session state, rate-limit counters, cart contents.</li>
@@ -1974,6 +2077,93 @@ sequenceDiagram
 </div>
 <p class="meta"><strong>Grace period.</strong> Released names sit in GRACE for 30 days before returning to the available pool — protects against accidental release and gives the owner a window to renew.</p>
 
+<h3>8.9 Visitor reaches a name's receptionist</h3>
+<p>Anyone landing on a name's public page can chat with its receptionist. The receptionist runs scripted slot-filling to collect <em>name → contact → topic → next step</em>, then summarises and drops the conversation into the owner's inbox.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant V as Visitor
+  participant PG as Public page (/&lt;name&gt;)
+  participant GW as DIAL API
+  participant REC as Receptionist
+  participant INB as Inbox
+
+  V->>PG: open alice.dial
+  PG->>GW: GET /v1/public/alice.dial
+  GW-->>PG: profile + addresses + receptionist greeting + active modes
+  V->>PG: send first message
+  PG->>GW: POST /v1/public/message (no auth · per-IP throttle)
+  GW->>REC: startOrContinue · mint conversation_id + session_token
+  REC-->>PG: reply + session_token
+  Note over PG,REC: subsequent turns reuse session_token
+  loop until name + contact + topic + next-step captured
+    V->>PG: answer
+    PG->>GW: POST /v1/public/message (conversation_id, session_token)
+    GW->>REC: slot-fill (regex extract + explicit re-ask)
+    REC-->>PG: next question · or done
+  end
+  REC->>REC: finalise (idempotent — summary + transcript)
+  REC->>INB: insert inbox_item (UNIQUE conversation_id)
+  REC-->>PG: "Thanks — I've forwarded a summary to &lt;owner&gt;"
+</div>
+<p class="meta"><strong>Deterministic in Phase 0.</strong> No external LLM dependency — the intake is a scripted slot-filler. The interface is shaped so a real LLM can drop in later without changing the public contract.</p>
+
+<h3>8.10 Owner reads the inbox</h3>
+<p>Every summarised conversation lands in the owner's inbox. Open one to mark read and see the full transcript alongside the structured fields.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as Owner
+  participant APP as DIAL App
+  participant GW as DIAL API
+  participant INB as Inbox
+
+  U->>APP: open Inbox
+  APP->>GW: GET /v1/inbox (Bearer session)
+  GW->>INB: list by owner + unread count
+  INB-->>GW: items
+  GW-->>APP: list + unread
+  U->>APP: open item
+  APP->>GW: GET /v1/inbox/:id
+  GW->>INB: read item · mark is_read=1
+  INB-->>GW: detail (subject, body, fields, transcript)
+  GW-->>APP: detail
+  APP-->>U: render — reply manually (email shown · §9.6 forward optional)
+</div>
+
+<h3>8.11 Configure receptionist &amp; profile modes</h3>
+<p>One settings screen drives both the receptionist and the modular profile. Owner can toggle modes by hand or by talking to a scripted mode agent.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant U as Owner
+  participant APP as DIAL App
+  participant GW as DIAL API
+  participant REC as Receptionist
+  participant MD as Profile Modes
+
+  rect rgba(95,108,255,0.06)
+    Note over U,REC: Receptionist config
+    U->>APP: edit greeting / forwarding email / active
+    APP->>GW: PUT /v1/receptionist/:name
+    GW->>REC: upsert config (owner-checked)
+    REC-->>APP: saved
+  end
+
+  rect rgba(255,180,84,0.06)
+    Note over U,MD: Modes (toggle)
+    U->>APP: turn on Hiring · make Partnership primary
+    APP->>GW: PUT /v1/profile/:name/modes/:key
+    GW->>MD: setMode · re-pick primary
+    MD-->>APP: full mode list
+  end
+
+  rect rgba(61,220,151,0.06)
+    Note over U,MD: Modes (natural language)
+    U->>APP: "close the profile"
+    APP->>GW: POST /v1/profile/:name/modes/agent
+    GW->>MD: parse intent · apply
+    MD-->>APP: reply + updated modes
+  end
+</div>
+
 <!-- =================================================== -->
 <h2 id="stack">9. Tech Stack</h2>
 <table>
@@ -2010,6 +2200,8 @@ sequenceDiagram
     <tr><td>Account takeover</td><td>DIAL is <strong>non-custodial</strong> — user keys live on device, so a server breach cannot drain accounts. Step-up Pairpoint IDH re-verification on sensitive ops. Biometric 2FA + device binding in the DIAL App.</td></tr>
     <tr><td>Resolver poisoning</td><td>Resolver returns DIAL-signed attestations; SDK verifies signature client-side and pins DIAL's published public key.</td></tr>
     <tr><td>Insider key misuse (DIAL signing key)</td><td>DIAL's <em>own</em> signing key in Vault / HSM with dual-control and audit log. User keys not held by DIAL — non-custodial.</td></tr>
+    <tr><td>Public visitor chat abuse (spam, flooding, conversation-id hijack)</td><td>Per-IP rate limit on the visitor endpoint (Phase 0: 20 msg/min), per-name soft cap, 2,000-char message cap, server-issued <code>session_token</code> binds continuation so a leaked <code>conversation_id</code> can't be hijacked. Self-healing finalise prevents stuck conversations.</td></tr>
+    <tr><td>Credential stuffing / brute force on sign-in + admin</td><td>scrypt password hashing, per-IP throttle on credential endpoints (Phase 0: 15/min), short-lived admin token, Bearer session tokens for user routes — no spoofable header.</td></tr>
     <tr><td>Cross-chain replay</td><td>Every signed attestation carries domain separators (chainId + contract address); sync writes are nonce-protected per chain.</td></tr>
     <tr><td>Stale on-chain copy</td><td><code>DialRegistry</code> on Canton and EVM-compatible chain expose <code>lastUpdatedAt</code>; SDKs refuse to verify against attestations older than N hours.</td></tr>
     <tr><td>Bridge / cross-chain value theft</td><td><strong>Out of scope by design</strong> — DIAL never bridges value. Each chain settles natively.</td></tr>

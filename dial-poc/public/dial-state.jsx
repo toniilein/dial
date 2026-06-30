@@ -115,7 +115,7 @@ function accountFromUser(user) {
   const org = DEMO_ADDR_ORG[addr] || addr;
   CALLER_ADDRESSES[org] = addr; // register so loadOrg's owner queries work
   return { org, address: addr, name: user.name, provider: user.provider, email: user.email,
-    verified: !!user.verified };
+    verified: !!user.verified, postalAddress: user.address || null, wallet: user.wallet || null };
 }
 function applyLogin(dispatch, user, opts) {
   dispatch({ type: 'login', account: accountFromUser(user),
@@ -134,6 +134,17 @@ async function authLogin(dispatch, { email, password }, opts) {
 }
 async function authDemo(dispatch, persona, opts) {
   const r = await dialApi('POST', '/v1/auth/demo', { body: { persona } });
+  setSession(r.token); applyLogin(dispatch, r.user, opts); return r.user;
+}
+// Request a password-reset link. Returns { ok, message, resetUrl? } — resetUrl
+// is only present in the PoC (no mailer); in production the link is emailed.
+async function authForgot(email) {
+  return dialApi('POST', '/v1/auth/forgot', { body: { email } });
+}
+// Complete a reset with the token from the link + a new password. The backend
+// signs the user straight in, so this also establishes a session.
+async function authReset(dispatch, token, password, opts) {
+  const r = await dialApi('POST', '/v1/auth/reset', { body: { token, password } });
   setSession(r.token); applyLogin(dispatch, r.user, opts); return r.user;
 }
 // Start an OAuth flow by navigating the browser to the provider.
@@ -166,6 +177,14 @@ async function authBootstrap(dispatch) {
   let err = null;
   const m = window.location.hash.match(/(?:^|#|&)auth=([^&]+)/);
   const e = window.location.hash.match(/(?:^|#|&)auth_error=([^&]+)/);
+  const reset = window.location.hash.match(/(?:^|#|&)reset=([^&]+)/);
+  // A reset link (#reset=<token>) opens the set-new-password modal. Handle it
+  // before session restore so it works whether or not someone is already signed
+  // in, and clear it from the URL so a refresh doesn't re-open the modal.
+  if (reset) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    dispatch({ type: 'modal', modal: { kind: 'reset', token: decodeURIComponent(reset[1]) } });
+  }
   if (m) { setSession(decodeURIComponent(m[1])); history.replaceState(null, '', window.location.pathname + window.location.search); }
   else if (e) { err = decodeURIComponent(e[1]); history.replaceState(null, '', window.location.pathname + window.location.search); }
   if (err) dispatch({ type: 'toast', toast: { kind: 'info', text: 'Sign-in failed: ' + err } });
@@ -180,8 +199,70 @@ async function refreshMe(dispatch) {
   try {
     const { user } = await dialApi('GET', '/v1/auth/me');
     const org = DEMO_ADDR_ORG[String(user.owner_address).toLowerCase()] || String(user.owner_address).toLowerCase();
-    dispatch({ type: 'set-identity', org, patch: { verified: !!user.verified, level: user.verified ? 'Verified' : null } });
+    const patch = { verified: !!user.verified, level: user.verified ? 'Verified' : null };
+    if (user.address) patch.address = user.address;
+    patch.wallet = user.wallet || null; // reflect a linked/unlinked wallet
+    dispatch({ type: 'set-identity', org, patch });
   } catch {}
+}
+
+// Save the signed-in user's editable postal/billing address.
+async function saveAccountAddress(dispatch, org, address) {
+  const { user } = await dialApi('PATCH', '/v1/auth/me', { body: { address } });
+  dispatch({ type: 'set-identity', org, patch: { address: user.address || null } });
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Address updated.' } });
+  return user;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Ethereum wallet link — Sign-In-With-Ethereum (EIP-4361), DIAL-native
+// ─────────────────────────────────────────────────────────────
+// Full connect flow: request account → fetch a server-built SIWE message →
+// personal_sign → POST signature. The server verifies the signature and binds
+// the proven wallet to a DIAL name the account owns (no ENS, no chain reads).
+// No transaction, no gas — just a signature.
+async function connectWallet(dispatch, org) {
+  const eth = window.ethereum;
+  if (!eth) throw new Error('No Ethereum wallet found. Install MetaMask, then try again.');
+
+  const accounts = await eth.request({ method: 'eth_requestAccounts' });
+  const address = accounts && accounts[0];
+  if (!address) throw new Error('No account selected in your wallet.');
+
+  const { message } = await dialApi('POST', '/v1/wallet/nonce', { body: { address } });
+  const signature = await eth.request({ method: 'personal_sign', params: [message, address] });
+  const { user } = await dialApi('POST', '/v1/wallet/link', { body: { message, signature } });
+
+  dispatch({ type: 'set-identity', org, patch: { wallet: user.wallet || null } });
+  dispatch({ type: 'toast', toast: { kind: 'ok',
+    text: user.wallet && user.wallet.name ? ('Wallet linked to ' + user.wallet.name) : 'Wallet linked.' } });
+  return user.wallet;
+}
+
+async function unlinkWallet(dispatch, org) {
+  const { user } = await dialApi('POST', '/v1/wallet/unlink', { body: {} });
+  dispatch({ type: 'set-identity', org, patch: { wallet: null } });
+  dispatch({ type: 'toast', toast: { kind: 'info', text: 'Wallet unlinked.' } });
+  return user;
+}
+
+// Consumer-controlled on-chain address update. The consumer SIGNS the change in
+// their own wallet (EIP-712); DIAL relays it on-chain (gasless) but can't forge
+// it. The decentralised path — only when the wallet is linked (= on-chain controller).
+async function updateEvmAddressSigned(dispatch, name, value) {
+  const eth = window.ethereum;
+  if (!eth) throw new Error('Install/connect MetaMask to sign the on-chain update.');
+  const accounts = await eth.request({ method: 'eth_requestAccounts' });
+  const from = accounts && accounts[0];
+  if (!from) throw new Error('No wallet account selected.');
+  // 1. DIAL prepares the EIP-712 typed data (addressesHash, seq, deadline).
+  const prep = await dialApi('POST', '/v1/chains/onchain/' + encodeURIComponent(name) + '/prepare-addr', { body: { value } });
+  // 2. Consumer signs it in their own wallet.
+  const signature = await eth.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(prep.typedData)] });
+  // 3. DIAL relays it on-chain + reflects it in the record.
+  await dialApi('POST', '/v1/chains/onchain/' + encodeURIComponent(name) + '/relay-addr',
+    { body: { nameHash: prep.nameHash, addressesHash: prep.addressesHash, seq: prep.seq, deadline: prep.deadline, signature, value } });
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Address set on-chain — signed by you, relayed by DIAL.' } });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -290,6 +371,10 @@ function dialReducer(state, action) {
       // Real verification comes from the account (admin-controlled).
       baseIdentity.verified = !!acct.verified;
       if (acct.verified && !baseIdentity.level) baseIdentity.level = 'Verified';
+      // Server-stored postal address wins over the static persona default, so a
+      // user's saved edits show on every sign-in (and real accounts get one).
+      if (acct.postalAddress) baseIdentity.address = acct.postalAddress;
+      baseIdentity.wallet = acct.wallet || null; // linked Ethereum wallet (SIWE)
       return { ...state,
         loggedIn: true,
         org,
@@ -619,7 +704,7 @@ async function saveReceptionist(state, dispatch, name, fields) {
   return cfg;
 }
 
-// ──────────── Modular profile modes ────────────
+// ──────────── Profile modules ────────────
 async function loadOwnerModes(org, name) {
   return dialApi('GET', '/v1/profile/' + encodeURIComponent(name) + '/modes', { caller: CALLER_ADDRESSES[org] });
 }
@@ -631,9 +716,26 @@ async function setModePrimary(org, name, key) {
   return dialApi('PUT', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key),
     { caller: CALLER_ADDRESSES[org], body: { primary: true } });
 }
-async function sendModeAgent(org, name, message) {
-  return dialApi('POST', '/v1/profile/' + encodeURIComponent(name) + '/modes/agent',
-    { caller: CALLER_ADDRESSES[org], body: { message } });
+async function setModeContent(org, name, key, fields) {
+  return dialApi('PUT', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key) + '/content',
+    { caller: CALLER_ADDRESSES[org], body: fields });
+}
+async function resetModeContent(org, name, key) {
+  return dialApi('DELETE', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key) + '/content',
+    { caller: CALLER_ADDRESSES[org] });
+}
+// Appearance items (e.g. conference module): add / edit / delete.
+async function addModeItem(org, name, key, item) {
+  return dialApi('POST', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key) + '/items',
+    { caller: CALLER_ADDRESSES[org], body: item });
+}
+async function updateModeItem(org, name, key, id, item) {
+  return dialApi('PUT', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key) + '/items/' + encodeURIComponent(id),
+    { caller: CALLER_ADDRESSES[org], body: item });
+}
+async function deleteModeItem(org, name, key, id) {
+  return dialApi('DELETE', '/v1/profile/' + encodeURIComponent(name) + '/modes/' + encodeURIComponent(key) + '/items/' + encodeURIComponent(id),
+    { caller: CALLER_ADDRESSES[org] });
 }
 
 // Owner inbox.
@@ -688,18 +790,79 @@ function nameLinks(textRecords) {
 }
 
 // Save the social links — one text record per platform; empty clears it.
-async function saveLinks(state, dispatch, name, values) {
+// `x_posts` / `linkedin_posts` (multi-line lists of featured post URLs) are
+// saved alongside, as free-form text records rather than single-handle platforms.
+async function saveLinks(state, dispatch, name, values, toastText) {
   const caller = CALLER_ADDRESSES[state.org];
   const existing = (state.names[state.org].find(n => n.name === name) || {}).text || {};
+  const put = (key, value) =>
+    dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/text/' + encodeURIComponent(key),
+      { caller, body: { value } });
+
+  // Only touch keys present in `values`, so a partial save (e.g. just the
+  // latest-posts editor) never clears records it didn't render.
   for (const p of LINK_PLATFORMS) {
+    if (!(p.key in values)) continue;
     const next = (values[p.key] || '').trim() ? p.clean(values[p.key]) : '';
     const prev = (existing[p.key] || '').trim();
     if (next === prev) continue;
-    await dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/text/' + encodeURIComponent(p.key),
-      { caller, body: { value: next } });
+    await put(p.key, next);
+  }
+  for (const key of ['x_posts', 'linkedin_posts']) {
+    if (!(key in values)) continue;
+    const next = (values[key] || '').trim();
+    if (next !== (existing[key] || '').trim()) await put(key, next);
   }
   await loadOrg(state, dispatch, state.org);
-  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Links updated.' } });
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: toastText || 'Links updated.' } });
+}
+
+// True when a stored avatar value is something we can actually render in an
+// <img> — a hosted path, a remote URL, or an inline raster data-URL. Mirrors
+// the server's isValidAvatar() so client and API agree on what counts.
+function isAvatarValue(v) {
+  if (!v) return false;
+  const s = String(v).trim();
+  return /^\/[^\s]+$/.test(s) || /^https?:\/\/\S+$/i.test(s) || /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(s);
+}
+
+// Read a user-picked image File, downscale it to <= `max` px on the long edge,
+// and return a compact data-URL. Photos go out as JPEG (small); PNGs keep their
+// alpha. Keeps the payload well under the API's 1 MB body limit without needing
+// any file-storage backend in this PoC.
+function fileToAvatarDataUrl(file, max = 512) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type)) return reject(new Error('Please choose an image file (PNG, JPEG, GIF, or WebP).'));
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const keepPng = /png/i.test(file.type);
+      let out = canvas.toDataURL(keepPng ? 'image/png' : 'image/jpeg', 0.85);
+      // A large PNG can still be heavy — fall back to JPEG to stay small.
+      if (out.length > 1_300_000) out = canvas.toDataURL('image/jpeg', 0.82);
+      if (out.length > 1_300_000) return reject(new Error('That image is too large even after resizing — try a smaller one.'));
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image.')); };
+    img.src = url;
+  });
+}
+
+// Set or clear the profile picture (avatar text record). Empty value removes it,
+// which falls the public page back to the default initials avatar.
+async function saveAvatar(state, dispatch, name, value) {
+  const caller = CALLER_ADDRESSES[state.org];
+  await dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/text/avatar',
+    { caller, body: { value: value || '' } });
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: value ? 'Profile picture updated.' : 'Profile picture removed.' } });
 }
 
 // Bind an EVM address to a name.
@@ -744,6 +907,9 @@ window.LINK_KEYS            = LINK_KEYS;
 window.isSafeHref           = isSafeHref;
 window.nameLinks            = nameLinks;
 window.saveLinks            = saveLinks;
+window.isAvatarValue        = isAvatarValue;
+window.fileToAvatarDataUrl  = fileToAvatarDataUrl;
+window.saveAvatar           = saveAvatar;
 window.loadPublic           = loadPublic;
 window.sendVisitorMessage   = sendVisitorMessage;
 window.loadReceptionist     = loadReceptionist;
@@ -751,7 +917,11 @@ window.saveReceptionist     = saveReceptionist;
 window.loadOwnerModes       = loadOwnerModes;
 window.setModeActive        = setModeActive;
 window.setModePrimary       = setModePrimary;
-window.sendModeAgent        = sendModeAgent;
+window.setModeContent       = setModeContent;
+window.resetModeContent     = resetModeContent;
+window.addModeItem          = addModeItem;
+window.updateModeItem       = updateModeItem;
+window.deleteModeItem       = deleteModeItem;
 window.loadInbox            = loadInbox;
 window.loadInboxItem        = loadInboxItem;
 window.addEvmAddress        = addEvmAddress;
@@ -759,6 +929,12 @@ window.authProviders        = authProviders;
 window.authRegister         = authRegister;
 window.authLogin            = authLogin;
 window.authDemo             = authDemo;
+window.authForgot           = authForgot;
+window.authReset            = authReset;
+window.saveAccountAddress   = saveAccountAddress;
+window.connectWallet        = connectWallet;
+window.unlinkWallet         = unlinkWallet;
+window.updateEvmAddressSigned = updateEvmAddressSigned;
 window.authStartOAuth       = authStartOAuth;
 window.authBootstrap        = authBootstrap;
 window.refreshMe            = refreshMe;

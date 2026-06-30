@@ -9,9 +9,11 @@
     },
     {
       "name": "dial-poc",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["start", "--prefix", "dial-poc"],
-      "port": 3000
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-toni-Documents-Claude-Projects-dial/ba7f19c6-9232-4fdf-8281-85cccffcd0c8/scratchpad/node-v22.12.0-darwin-arm64/bin/node",
+      "runtimeArgs": ["--env-file=.env", "--experimental-strip-types", "src/server.ts"],
+      "cwd": "dial-poc",
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

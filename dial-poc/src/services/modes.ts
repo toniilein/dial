@@ -1,17 +1,17 @@
+import crypto from 'node:crypto';
 import { db } from '../db.ts';
 import * as registry from './registry.ts';
 
-// ── Modular profile modes ────────────────────────────────────────────────
-// A profile is composed of "modes" the owner can switch on/off. Each mode is a
-// self-contained block the public page renders (title, status, copy, a few
-// detail cards, and a CTA that routes to the receptionist). The owner toggles
-// them directly or by talking to the mode agent (see agent() below).
+// ── Profile modules ──────────────────────────────────────────────────────
+// A profile is composed of "modules" the owner can switch on/off. Each module
+// is a self-contained block the public page renders (title, status, copy, a few
+// detail cards, and a CTA that routes to the receptionist). Active modules are
+// stacked on the public page in catalog order.
 
-export type ModeItem = { mon: string; day: string; title: string; sub: string; tag: string };
+export type ModeItem = { id?: string; mon: string; day: string; title: string; sub: string; tag: string };
 export type ModeSignal = { source: string; text: string; meta: string };
 export type Mode = {
   key: string;
-  kind: 'mode' | 'module'; // 'mode' = switchable availability tab; 'module' = standalone stacked block
   label: string;
   title: string;
   status: string;
@@ -22,14 +22,14 @@ export type Mode = {
   items?: ModeItem[];     // e.g. conference appearances
   signals?: ModeSignal[]; // e.g. latest LinkedIn / X posts
   active?: boolean;
-  primary?: boolean;
+  primary?: boolean;      // the featured module — shown first on the public page
 };
 
 // Default catalog. Content is template copy the owner enables — editing the
-// text is a future extension; for now activating a mode is the unit of control.
+// text is a future extension; for now activating a module is the unit of control.
 const CATALOG: Mode[] = [
   {
-    key: 'conference', kind: 'module', label: 'Conferences', title: 'Upcoming appearances', status: 'Jul–Aug 2026', closed: false,
+    key: 'conference', label: 'Conferences', title: 'Upcoming appearances', status: 'Jul–Aug 2026', closed: false,
     copy: 'Where David will be over the coming weeks — open to focused meetings with Web3 infrastructure, telecom, and enterprise teams at each.',
     cta: 'Request a meeting',
     minis: [],
@@ -42,30 +42,27 @@ const CATALOG: Mode[] = [
     ],
   },
   {
-    key: 'partnership', kind: 'mode', label: 'Partnership', title: 'Open for Partnerships', status: 'Active', closed: false,
+    key: 'partnership', label: 'Partnership', title: 'Open for Partnerships', status: 'Active', closed: false,
     copy: 'Open to partnership conversations across Web3, IoT, AI, connected devices, identity, and enterprise infrastructure.',
     cta: 'Propose a partnership',
     minis: [['Good fit', 'Enterprise Web3, telecom, identity, IoT'], ['Best ask', 'A concrete proposal with clear overlap'], ['Next step', 'A short intro call or a one-pager']],
   },
   {
-    key: 'hiring', kind: 'mode', label: 'Hiring', title: 'Hiring: BD Lead, Web3', status: 'Role open', closed: false,
+    key: 'hiring', label: 'Hiring', title: 'Hiring: BD Lead, Web3', status: 'Role open', closed: false,
     copy: 'Hiring a business-development lead focused on Web3, enterprise partnerships, and ecosystem development.',
     cta: 'Apply or recommend',
     minis: [['Role', 'BD Lead · Web3'], ['Best fit', 'Enterprise BD with Web3 fluency'], ['Bring', 'A profile or a referral with context']],
   },
   {
-    key: 'signals', kind: 'module', label: 'Latest signals', title: 'Latest public signals', status: 'Auto-updated', closed: false,
-    copy: 'Recent public posts and updates — pulled in automatically once accounts are connected, or curated.',
+    key: 'signals', label: 'Latest posts', title: 'Latest posts', status: 'Live', closed: false,
+    copy: 'Latest posts from X and LinkedIn. Add post links under the name’s Links → Latest posts.',
     cta: '',
     minis: [],
-    signals: [
-      { source: 'LinkedIn · latest', text: 'Pairpoint just crossed a milestone on device-bound identity for enterprise IoT. Proud of the team — more to share at WebX in Tokyo.', meta: 'live module · professional updates' },
-      { source: 'X · latest', text: 'Web3 × telecom is finally getting real. If you’re building device identity or tokenized infrastructure, let’s talk in Tokyo next month.', meta: 'live module · @davidpalmer' },
-      { source: 'Featured update', text: 'Pairpoint partnership and conference highlights are pinned here instead of raw latest posts.', meta: 'curated · pinned' },
-    ],
+    // Content comes from the owner's curated X / LinkedIn post embeds (see
+    // services/feeds.ts), injected per-name on the public page. No static posts.
   },
   {
-    key: 'closed', kind: 'mode', label: 'Closed', title: 'Closed for now', status: 'Urgent only', closed: true,
+    key: 'closed', label: 'Closed', title: 'Closed for now', status: 'Urgent only', closed: true,
     copy: 'Not accepting general inbound right now. Urgent, referred, or high-relevance requests can still be submitted for review.',
     cta: 'Request access',
     minis: [['Allowed', 'Urgent, referred, existing relationships'], ['Filtered', 'Generic sales and vague networking'], ['Reception', 'Needs strong context or an access code']],
@@ -74,15 +71,35 @@ const CATALOG: Mode[] = [
 const CATALOG_BY_KEY: Record<string, Mode> = Object.fromEntries(CATALOG.map(m => [m.key, m]));
 const ORDER = CATALOG.map(m => m.key);
 
-type Doc = { active: Record<string, boolean>; primary: string | null };
+// `items` overrides the catalog's default appearance list per module key. A key
+// present here (even as []) means the owner has taken control of that module's
+// items; absent means "show the catalog defaults".
+//
+// `content` holds the owner's per-module text overrides (title, status, copy,
+// cta and the detail cards / minis). A key present here means the owner has
+// edited that module's copy; absent means "show the catalog defaults".
+type ModeContent = Partial<Pick<Mode, 'title' | 'status' | 'copy' | 'cta' | 'minis'>>;
+type Doc = {
+  active: Record<string, boolean>;
+  primary?: string | null;   // key of the featured module, if the owner picked one
+  items?: Record<string, ModeItem[]>;
+  content?: Record<string, ModeContent>;
+};
 
 function readDoc(name: string): Doc {
   const row = db.prepare(`SELECT doc FROM profile_modes WHERE name = ?`).get(name) as { doc: string } | undefined;
   if (!row) return { active: {}, primary: null };
   try {
     const d = JSON.parse(row.doc);
-    return { active: d.active || {}, primary: d.primary ?? null };
+    return { active: d.active || {}, primary: d.primary ?? null, items: d.items || undefined, content: d.content || undefined };
   } catch { return { active: {}, primary: null }; }
+}
+
+// Pick a valid primary: the owner's choice when it's active, otherwise the
+// first active module in catalog order. Any module can be primary.
+function pickPrimary(doc: Doc): string | null {
+  if (doc.primary && doc.active[doc.primary]) return doc.primary;
+  return ORDER.find(k => doc.active[k]) ?? null;
 }
 
 function writeDoc(name: string, doc: Doc): void {
@@ -98,124 +115,179 @@ function requireOwner(caller: string, name: string): void {
   if (owner.toLowerCase() !== caller.toLowerCase()) throw new Error('not owner');
 }
 
-const isMode = (key: string) => CATALOG_BY_KEY[key]?.kind === 'mode';
-
-// Pick a valid primary: only a 'mode' (not a 'module') can be primary, and it
-// must be active. Falls back to the first active mode in catalog order.
-function pickPrimary(doc: Doc): string | null {
-  if (doc.primary && doc.active[doc.primary] && isMode(doc.primary)) return doc.primary;
-  return ORDER.find(k => doc.active[k] && isMode(k)) ?? null;
+// Resolve the appearance items shown for a module: the owner's custom list when
+// present, otherwise the catalog defaults (with ids backfilled for the UI).
+function itemsFor(doc: Doc, key: string): ModeItem[] | undefined {
+  const base = CATALOG_BY_KEY[key];
+  if (!base?.items) return base?.items;
+  const custom = doc.items?.[key];
+  if (custom) return custom;
+  return base.items.map((it, i) => ({ ...it, id: `seed_${i}` }));
 }
 
-// Merge the catalog with a name's on/off + primary state. Modes are ordered
-// with the primary first; modules are never primary.
+// Merge the catalog with a name's on/off state + content overrides. The owner's
+// edited title/status/copy/cta/minis win over the defaults; the primary module
+// is flagged and sorted first, the rest follow in catalog order.
 function merged(name: string): Mode[] {
   const doc = readDoc(name);
   const primary = pickPrimary(doc);
   const list = ORDER.map(key => ({
     ...CATALOG_BY_KEY[key],
+    ...(doc.content?.[key] ?? {}),
+    items: itemsFor(doc, key),
     active: !!doc.active[key],
     primary: primary === key,
   }));
   return list.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0) || ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
 }
 
-// Public: only the active modes, primary first.
+// Public: only the active modules, in catalog order.
 export function publicModes(name: string): Mode[] {
   return merged(name).filter(m => m.active);
 }
 
-// Owner: every mode with its active/primary flags.
+// Owner: every module with its active flag.
 export function ownerModes(caller: string, name: string): Mode[] {
   requireOwner(caller, name);
   return merged(name);
 }
 
-// Toggle a single mode (and optionally make it primary).
+// Toggle a single module on/off, and optionally make it the primary (featured)
+// module. A module made primary is turned on at the same time.
 export function setMode(caller: string, name: string, key: string, patch: { active?: boolean; primary?: boolean }): Mode[] {
   requireOwner(caller, name);
-  if (!CATALOG_BY_KEY[key]) throw new Error('unknown mode');
+  if (!CATALOG_BY_KEY[key]) throw new Error('unknown module');
   const doc = readDoc(name);
-  if (typeof patch.active === 'boolean') {
-    doc.active[key] = patch.active;
-  }
-  if (patch.primary && isMode(key)) { doc.active[key] = true; doc.primary = key; }
+  if (typeof patch.active === 'boolean') doc.active[key] = patch.active;
+  if (patch.primary) { doc.active[key] = true; doc.primary = key; }
   doc.primary = pickPrimary(doc);
   writeDoc(name, doc);
   return merged(name);
 }
 
-// Replace active modes wholesale (used by the seed).
-export function setActiveSet(caller: string, name: string, activeKeys: string[], primary: string | null): Mode[] {
+// Replace active modules wholesale (used by the seed).
+export function setActiveSet(caller: string, name: string, activeKeys: string[], primary: string | null = null): Mode[] {
   requireOwner(caller, name);
   const active: Record<string, boolean> = {};
   for (const k of activeKeys) if (CATALOG_BY_KEY[k]) active[k] = true;
-  const doc: Doc = { active, primary: primary && isMode(primary) ? primary : null };
+  const doc: Doc = { active, primary };
   doc.primary = pickPrimary(doc);
   writeDoc(name, doc);
   return merged(name);
 }
 
-// ── Mode agent — scripted natural-language control ───────────────────────
-// The owner types things like "turn on conference mode", "close the profile",
-// "turn off hiring", "make partnership primary". We parse intent, apply it,
-// and reply with the new state. No LLM — deterministic, like the receptionist.
-const MODE_PATTERNS: [string, RegExp][] = [
-  ['conference', /\b(conference|conferences|conf|event|events|appearance|appearances|speaking|circuit)\b/],
-  ['partnership', /\b(partnership|partnerships|partner|partnering|collab)\b/],
-  ['hiring', /\b(hiring|hire|recruit|recruiting|job|role|bd lead|candidate)\b/],
-  ['signals', /\b(signals?|latest posts?|public signals|social feed|feed|my posts)\b/],
-  ['closed', /\b(closed?|pause|paused|stop inbound|not accepting|away|offline)\b/],
-];
+// ── Module content — edit the copy of any module ─────────────────────────
+// Every module's text (title, status, body copy, CTA label, and detail cards)
+// can be overridden by the owner. Overrides fork into the name's doc; absent
+// fields fall back to the catalog default.
 
-export function agent(caller: string, name: string, message: string): { reply: string; modes: Mode[] } {
+const FIELD_MAX = { title: 120, status: 40, copy: 600, cta: 60 } as const;
+const str = (v: any, max: number) => String(v ?? '').trim().slice(0, max);
+
+// Validate + clamp an incoming content patch. Only known fields are kept, so
+// the override can never inject arbitrary keys onto a module.
+function cleanContent(input: any): ModeContent {
+  const out: ModeContent = {};
+  if (input?.title !== undefined) {
+    const title = str(input.title, FIELD_MAX.title);
+    if (!title) throw new Error('title required');
+    out.title = title;
+  }
+  if (input?.status !== undefined) out.status = str(input.status, FIELD_MAX.status);
+  if (input?.copy !== undefined) out.copy = str(input.copy, FIELD_MAX.copy);
+  if (input?.cta !== undefined) out.cta = str(input.cta, FIELD_MAX.cta);
+  if (input?.minis !== undefined) {
+    if (!Array.isArray(input.minis)) throw new Error('minis must be a list');
+    out.minis = input.minis
+      .slice(0, 6)
+      .map((pair: any): [string, string] => [str(pair?.[0], 40), str(pair?.[1], 160)])
+      .filter((p: [string, string]) => p[0] || p[1]);
+  }
+  return out;
+}
+
+// Save a module's content overrides (full replace of the editable fields).
+export function setContent(caller: string, name: string, key: string, input: any): Mode[] {
   requireOwner(caller, name);
-  const t = (message || '').toLowerCase().trim();
-
-  const mentioned = MODE_PATTERNS.filter(([, re]) => re.test(t)).map(([k]) => k);
-  const wantsOff = /\b(off|disable|deactivate|turn off|switch off|remove|hide|drop|stop|end)\b/.test(t);
-  const wantsPrimary = /\b(primary|main|feature|featured|headline|lead with|front)\b/.test(t);
-  const closeAll = /\b(close (the )?profile|go offline|closed mode|pause everything|not accepting)\b/.test(t);
-
+  if (!CATALOG_BY_KEY[key]) throw new Error('unknown module');
   const doc = readDoc(name);
-  const actions: string[] = [];
-
-  if (closeAll && !mentioned.includes('closed')) mentioned.push('closed');
-
-  if (mentioned.length === 0) {
-    return {
-      reply: 'I can switch profile modes on or off. Try: "turn on conference mode", "open for partnerships", "start hiring", "show latest signals", "close the profile", "turn off hiring", or "make partnership primary". Modes: Conference, Partnership, Hiring, Latest signals, Closed.',
-      modes: merged(name),
-    };
-  }
-
-  for (const key of mentioned) {
-    // Per-mode intent. A close-intent ("close the profile") always turns Closed
-    // ON, even when the message also turns another mode off. Only a 'mode'
-    // (not a 'module' like signals) can be made primary.
-    const turnOn = (key === 'closed' && closeAll) ? true : !wantsOff;
-    if (wantsPrimary && turnOn && isMode(key)) {
-      doc.active[key] = true; doc.primary = key;
-      actions.push(`made ${CATALOG_BY_KEY[key].label} the primary mode`);
-    } else if (!turnOn) {
-      doc.active[key] = false;
-      actions.push(`turned off ${CATALOG_BY_KEY[key].label}`);
-    } else {
-      doc.active[key] = true;
-      actions.push(`turned on ${CATALOG_BY_KEY[key].label}`);
-    }
-  }
-
-  doc.primary = pickPrimary(doc);
+  if (!doc.content) doc.content = {};
+  doc.content[key] = cleanContent(input);
   writeDoc(name, doc);
+  return merged(name);
+}
 
-  const all = merged(name);
-  const activeList = all.filter(m => m.active);
-  const summary = activeList.length
-    ? activeList.map(m => m.primary ? `${m.label} (primary)` : m.label).join(', ')
-    : 'none — your profile shows nothing';
-  return {
-    reply: `Done — ${actions.join('; ')}. Active: ${summary}. Published to ${name}.`,
-    modes: all,
-  };
+// Drop a module's content overrides — revert it to the catalog defaults.
+export function resetContent(caller: string, name: string, key: string): Mode[] {
+  requireOwner(caller, name);
+  if (!CATALOG_BY_KEY[key]) throw new Error('unknown module');
+  const doc = readDoc(name);
+  if (doc.content) { delete doc.content[key]; writeDoc(name, doc); }
+  return merged(name);
+}
+
+// ── Appearance items (e.g. conference module) — add / edit / delete ──────
+// Items live in the catalog by default; the first edit forks the list into the
+// name's doc so the owner fully owns it from then on.
+
+// Only modules that ship an `items` array support item editing.
+function requireItemMode(key: string): void {
+  const base = CATALOG_BY_KEY[key];
+  if (!base) throw new Error('unknown module');
+  if (!base.items) throw new Error('module has no appearances');
+}
+
+function cleanItem(input: any): Omit<ModeItem, 'id'> {
+  const str = (v: any, max: number) => String(v ?? '').trim().slice(0, max);
+  const mon = str(input?.mon, 4).toUpperCase();
+  const day = str(input?.day, 3);
+  const title = str(input?.title, 120);
+  const sub = str(input?.sub, 200);
+  const tag = str(input?.tag, 40);
+  if (!title) throw new Error('title required');
+  if (!mon) throw new Error('month required');
+  if (!day) throw new Error('day required');
+  return { mon, day, title, sub, tag: tag || 'Attending' };
+}
+
+// The owner's working copy of a mode's items — seeded from the catalog on the
+// first edit so existing appearances stay editable.
+function ownItems(doc: Doc, key: string): ModeItem[] {
+  if (!doc.items) doc.items = {};
+  if (!doc.items[key]) doc.items[key] = itemsFor(doc, key) ?? [];
+  return doc.items[key];
+}
+
+export function addItem(caller: string, name: string, key: string, input: any): Mode[] {
+  requireOwner(caller, name);
+  requireItemMode(key);
+  const doc = readDoc(name);
+  const list = ownItems(doc, key);
+  list.push({ id: 'it_' + crypto.randomBytes(6).toString('hex'), ...cleanItem(input) });
+  writeDoc(name, doc);
+  return merged(name);
+}
+
+export function updateItem(caller: string, name: string, key: string, id: string, input: any): Mode[] {
+  requireOwner(caller, name);
+  requireItemMode(key);
+  const doc = readDoc(name);
+  const list = ownItems(doc, key);
+  const item = list.find(it => it.id === id);
+  if (!item) throw new Error('appearance not found');
+  Object.assign(item, cleanItem(input));
+  writeDoc(name, doc);
+  return merged(name);
+}
+
+export function deleteItem(caller: string, name: string, key: string, id: string): Mode[] {
+  requireOwner(caller, name);
+  requireItemMode(key);
+  const doc = readDoc(name);
+  const list = ownItems(doc, key);
+  const next = list.filter(it => it.id !== id);
+  if (next.length === list.length) throw new Error('appearance not found');
+  doc.items![key] = next;
+  writeDoc(name, doc);
+  return merged(name);
 }
