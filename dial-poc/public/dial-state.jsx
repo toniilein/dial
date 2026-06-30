@@ -255,26 +255,40 @@ async function updateEvmAddressSigned(dispatch, name, value) {
   const accounts = await eth.request({ method: 'eth_requestAccounts' });
   const from = accounts && accounts[0];
   if (!from) throw new Error('No wallet account selected.');
-  // 1. DIAL prepares the EIP-712 typed data — and makes THIS signing account the
-  //    name's on-chain controller, so the signature always matches.
-  const prep = await dialApi('POST', '/v1/chains/onchain/' + encodeURIComponent(name) + '/prepare-addr', { body: { value, from } });
-  // 2. eth_signTypedData_v4 requires the wallet's active chain to match the
-  //    typed-data domain (here Sepolia). Switch the wallet to it first.
-  const targetHex = '0x' + Number(prep.typedData.domain.chainId).toString(16);
-  if ((await eth.request({ method: 'eth_chainId' })) !== targetHex) {
+  const base = '/v1/chains/onchain/' + encodeURIComponent(name);
+
+  // Retry on a stale sequence: prepare reads the on-chain version (seq); if it
+  // moves between prepare and relay (BadSeq), re-prepare with the fresh seq and
+  // re-sign. Each attempt is one signature.
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // 1. DIAL prepares the EIP-712 typed data (controller = the signing account).
+    const prep = await dialApi('POST', base + '/prepare-addr', { body: { value, from } });
+    // 2. eth_signTypedData_v4 needs the wallet on the typed-data chain (Sepolia).
+    const targetHex = '0x' + Number(prep.typedData.domain.chainId).toString(16);
+    if ((await eth.request({ method: 'eth_chainId' })) !== targetHex) {
+      try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }); }
+      catch (e) {
+        if (e && e.code === 4902) throw new Error('Add the Sepolia test network to your wallet, then try again.');
+        throw new Error('Switch your wallet to Sepolia (chainId ' + prep.typedData.domain.chainId + ') and try again.');
+      }
+    }
+    // 3. Consumer signs it in their own wallet.
+    const signature = await eth.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(prep.typedData)] });
+    // 4. DIAL relays it. Returns the minted name NFT + explorer base.
     try {
-      await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] });
+      const res = await dialApi('POST', base + '/relay-addr',
+        { body: { nameHash: prep.nameHash, addressesHash: prep.addressesHash, seq: prep.seq, deadline: prep.deadline, signature, value } });
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Address set on-chain — signed by you, relayed by DIAL.' } });
+      return res;
     } catch (e) {
-      if (e && e.code === 4902) throw new Error('Add the Sepolia test network to your wallet, then try again.');
-      throw new Error('Switch your wallet to Sepolia (chainId ' + prep.typedData.domain.chainId + ') and try again.');
+      lastErr = e;
+      // Stale sequence (or a transient on-chain revert) — re-prepare + re-sign.
+      if (attempt < 2 && /BadSeq|execution reverted|nonce|replacement/i.test(e.message || '')) continue;
+      throw e;
     }
   }
-  // 3. Consumer signs it in their own wallet.
-  const signature = await eth.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(prep.typedData)] });
-  // 3. DIAL relays it on-chain + reflects it in the record.
-  await dialApi('POST', '/v1/chains/onchain/' + encodeURIComponent(name) + '/relay-addr',
-    { body: { nameHash: prep.nameHash, addressesHash: prep.addressesHash, seq: prep.seq, deadline: prep.deadline, signature, value } });
-  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Address set on-chain — signed by you, relayed by DIAL.' } });
+  throw lastErr;
 }
 
 // ─────────────────────────────────────────────────────────────

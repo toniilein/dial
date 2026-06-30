@@ -75,7 +75,7 @@ function DialTopBar() {
 
       <div className="dial-topbar-spacer" />
 
-      <TopWalletChip />
+      {loggedIn && <TopWalletChip />}
 
       <div ref={cartRef} style={{ position: 'relative' }}
         onMouseEnter={openCart} onMouseLeave={closeCartSoon}>
@@ -643,6 +643,7 @@ function WalletBar({ cfg }) {
   const short     = (a) => a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
 
   const connect = async () => { setErr(null); setBusy(true); try { await eth.request({ method: 'eth_requestAccounts' }); await refresh(); } catch (e) { setErr(e.message || String(e)); } finally { setBusy(false); } };
+  const changeAccount = async () => { setErr(null); setBusy(true); try { await eth.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }); await refresh(); } catch (e) { setErr(e.message || String(e)); } finally { setBusy(false); } };
   const switchNet = async () => {
     setErr(null); setBusy(true);
     try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }); await refresh(); }
@@ -675,7 +676,7 @@ function WalletBar({ cfg }) {
               ? <button className="dial-btn primary sm" onClick={connect} disabled={busy}><Wallet size={13} stroke="#fff" /> {busy ? 'Connecting…' : 'Connect wallet'}</button>
               : !onTarget
                 ? <button className="dial-btn primary sm" onClick={switchNet} disabled={busy || !targetHex}>{busy ? 'Switching…' : 'Switch to ' + target}</button>
-                : <button className="dial-btn sm" onClick={refresh} disabled={busy}><Refresh size={12} /> Refresh</button>}
+                : <button className="dial-btn sm" onClick={changeAccount} disabled={busy} title="Switch which wallet account is connected"><Wallet size={12} /> Switch wallet</button>}
         </div>
       </div>
       {err && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
@@ -687,11 +688,17 @@ function WalletBar({ cfg }) {
 // Compact wallet chip for the top bar — connect, show the network, or switch.
 // Hidden when no wallet is present (the On-chain page handles the install case).
 function TopWalletChip() {
+  const { dispatch } = useDial();
   const eth = (typeof window !== 'undefined') ? window.ethereum : null;
   const [account, setAccount] = React.useState(null);
   const [chainId, setChainId] = React.useState(null);
   const [cfg, setCfg]         = React.useState(null);
   const [busy, setBusy]       = React.useState(false);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  // Client-side disconnect (like Uniswap/Aave): the app forgets the wallet and
+  // remembers that across reloads, regardless of MetaMask's own permission state.
+  const [disconnected, setDisconnected] = React.useState(() => { try { return localStorage.getItem('dial_wallet_disconnected') === '1'; } catch { return false; } });
+  const menuRef = React.useRef(null);
 
   const refresh = React.useCallback(async () => {
     if (!eth) return;
@@ -706,20 +713,67 @@ function TopWalletChip() {
     eth.on('accountsChanged', onA); eth.on('chainChanged', onC);
     return () => { eth.removeListener && eth.removeListener('accountsChanged', onA); eth.removeListener && eth.removeListener('chainChanged', onC); };
   }, [eth, refresh]);
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const h = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [menuOpen]);
 
   if (!eth) return null;
   const targetHex = cfg && cfg.chainId ? '0x' + Number(cfg.chainId).toString(16) : null;
   const onTarget  = !!(chainId && targetHex && chainId.toLowerCase() === targetHex.toLowerCase());
   const target    = cfg ? (cfg.network || 'network') : 'network';
   const short     = (a) => a ? a.slice(0, 5) + '…' + a.slice(-4) : '';
-  const act = async (fn) => { setBusy(true); try { await fn(); await refresh(); } catch {} finally { setBusy(false); } };
+  const connected = !!account && !disconnected;
+  const walletErr = (e) => {
+    if (e && e.code === -32002) return 'MetaMask is already asking — open the extension popup to continue.';
+    if (e && e.code === 4001) return 'Request cancelled in your wallet.';
+    return (e && e.message) || 'Wallet request failed.';
+  };
+  const act = async (fn) => {
+    setBusy(true);
+    try { await fn(); await refresh(); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: walletErr(e) } }); }
+    finally { setBusy(false); }
+  };
 
-  if (!account) return <button className="dial-btn sm" onClick={() => act(() => eth.request({ method: 'eth_requestAccounts' }))} disabled={busy}><Wallet size={13} /> {busy ? '…' : 'Connect wallet'}</button>;
+  const connect = () => { setDisconnected(false); try { localStorage.removeItem('dial_wallet_disconnected'); } catch {} act(() => eth.request({ method: 'eth_requestAccounts' })); };
+  // Re-prompt MetaMask's account picker so the user can switch which wallet is active.
+  const changeAccount = () => act(() => eth.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }));
+  // Disconnect, Uniswap-style: forget the wallet locally (reliable + persisted),
+  // and best-effort revoke the site permission so MetaMask reflects it too.
+  const disconnect = () => {
+    setMenuOpen(false);
+    setDisconnected(true);
+    try { localStorage.setItem('dial_wallet_disconnected', '1'); } catch {}
+    eth.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] }).catch(() => {});
+    dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Wallet disconnected.' } });
+  };
+
+  if (!connected) return <button className="dial-btn sm" onClick={connect} disabled={busy}><Wallet size={13} /> {busy ? '…' : 'Connect wallet'}</button>;
   if (!onTarget) return <button className="dial-btn sm" onClick={() => act(() => eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }))} disabled={busy || !targetHex} title={'Switch to ' + target} style={{ borderColor: 'var(--dial-warn)', color: 'var(--dial-warn)' }}><Wallet size={13} /> Switch to {target}</button>;
+
+  const item = { display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, color: 'var(--dial-text)', padding: '7px 9px', fontSize: 12.5, cursor: 'pointer', borderRadius: 'var(--dial-radius-sm)' };
   return (
-    <div className="dial-btn sm" title={account + ' · ' + target} style={{ cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--dial-ok)', display: 'inline-block' }} />
-      <code className="dial-mono" style={{ fontSize: 11 }}>{short(account)}</code>
+    <div ref={menuRef} style={{ position: 'relative' }}>
+      <button className="dial-btn sm" onClick={() => setMenuOpen(o => !o)} disabled={busy} title={account + ' · ' + target}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--dial-ok)', display: 'inline-block' }} />
+        <code className="dial-mono" style={{ fontSize: 11 }}>{short(account)}</code>
+        <ChevronDown size={11} stroke="var(--dial-muted)" />
+      </button>
+      {menuOpen && (
+        <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 60, minWidth: 200,
+          background: 'var(--dial-surface)', border: 'var(--dial-border-w) solid var(--dial-border)', borderRadius: 'var(--dial-radius-sm)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.14)', padding: 6 }}>
+          <div className="dial-muted" style={{ fontSize: 10.5, padding: '6px 9px', borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 4 }}>
+            <code className="dial-mono" style={{ fontSize: 11 }}>{short(account)}</code> · {target}
+          </div>
+          <button style={item} onMouseDown={e => e.preventDefault()} onClick={() => { setMenuOpen(false); changeAccount(); }}>Switch account</button>
+          <button style={{ ...item, color: 'var(--dial-accent)' }} onMouseDown={e => e.preventDefault()} onClick={disconnect}>Disconnect</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -858,7 +912,7 @@ function ScreenChains() {
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <code className="dial-mono" style={{ fontSize: 12 }}>{short(lookupResult.nft.owner, 8, 6)}</code>
                   {lookupResult.explorerBase && <a style={{ fontSize: 11, color: 'var(--dial-accent)' }} target="_blank" rel="noreferrer"
-                    href={lookupResult.explorerBase + '/token/' + lookupResult.nft.contract + '?a=' + lookupResult.nft.tokenId}>view NFT <External size={11} /></a>}
+                    href={lookupResult.explorerBase + '/nft/' + lookupResult.nft.contract + '/' + lookupResult.nft.tokenId}>view NFT <External size={11} /></a>}
                 </span>
               </div>
             )}
@@ -1868,10 +1922,24 @@ function EvmEditor({ name }) {
   const [value, setValue] = React.useState(current);
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState(null);
+  const [nft, setNft] = React.useState(null); // minted name NFT (for the Etherscan link)
   React.useEffect(() => { setValue(current); setErr(null); }, [current]);
+  React.useEffect(() => {
+    let c = false;
+    dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name))
+      .then(r => { if (!c && r && r.nft && r.explorerBase) setNft({ ...r.nft, explorerBase: r.explorerBase }); })
+      .catch(() => {});
+    return () => { c = true; };
+  }, [name.name]);
 
   const valid = isEvmAddress(value);
   const walletLinked = !!(state.identity[state.org] && state.identity[state.org].wallet);
+  const nftLink = nft && nft.explorerBase ? (
+    <a href={nft.explorerBase + '/nft/' + nft.contract + '/' + nft.tokenId} target="_blank" rel="noreferrer"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--dial-accent)', marginTop: 8, textDecoration: 'none' }}>
+      <Shield size={12} stroke="var(--dial-accent)" /> This name is an NFT in your wallet — view on Etherscan <External size={11} />
+    </a>
+  ) : null;
   const save = async () => {
     setErr(null); setSaving(true);
     try {
@@ -1885,7 +1953,8 @@ function EvmEditor({ name }) {
   const saveSigned = async () => {
     setErr(null); setSaving(true);
     try {
-      await updateEvmAddressSigned(dispatch, name.name, value);
+      const res = await updateEvmAddressSigned(dispatch, name.name, value);
+      if (res && res.nft && res.explorerBase) setNft({ ...res.nft, explorerBase: res.explorerBase });
       await fetchOrgNames(state, dispatch, state.org); // refresh the record
       setOpen(false);
     } catch (e) { setErr(e.message || String(e)); }
@@ -1894,26 +1963,32 @@ function EvmEditor({ name }) {
 
   if (current && !open) {
     return (
-      <div className="dial-card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: '#2b6cff', color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>EVM</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>EVM-compatible</span>
-            <code className="dial-mono dial-muted" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>eip155:1</code>
+      <div>
+        <div className="dial-card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: '#2b6cff', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>EVM</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>EVM-compatible</span>
+              <code className="dial-mono dial-muted" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>eip155:1</code>
+            </div>
+            <code className="dial-mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{current}</code>
           </div>
-          <code className="dial-mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{current}</code>
+          <button className="dial-btn sm" onClick={() => setOpen(true)}><Edit size={12} /> Edit</button>
         </div>
-        <button className="dial-btn sm" onClick={() => setOpen(true)}><Edit size={12} /> Edit</button>
+        {nftLink}
       </div>
     );
   }
 
   if (!current && !open) {
     return (
-      <button className="dial-btn sm" onClick={() => setOpen(true)}>
-        <Plus size={12} /> Add EVM address
-      </button>
+      <div>
+        <button className="dial-btn sm" onClick={() => setOpen(true)}>
+          <Plus size={12} /> Add EVM address
+        </button>
+        {nftLink && <div>{nftLink}</div>}
+      </div>
     );
   }
 

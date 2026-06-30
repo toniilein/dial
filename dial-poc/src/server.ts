@@ -834,7 +834,10 @@ app.post('/v1/chains/onchain/:name/relay-addr', async (req, res) => {
     chainSync.logEvmWrite(name, 'addr · signed', out.hash, out.status);
     // Reflect the consumer-set address in DIAL's DB (the public page / resolver).
     resolver.setAddr(c, name, 'eip155:1', String(value).toLowerCase());
-    res.json({ ...out, name, controller: signer });
+    // Include the freshly-minted name NFT + explorer base so the UI can link to it.
+    const nft = await evm.readNftOwner(name).catch(() => null);
+    const cfg = await evm.config().catch(() => null);
+    res.json({ ...out, name, controller: signer, nft, explorerBase: cfg ? (cfg as any).explorerBase : null });
   } catch (e) {
     if (walletUnavailable(res, e as Error)) return;
     res.status(400).json({ error: (e as Error).message });
