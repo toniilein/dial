@@ -81,11 +81,22 @@ export function start() {
       else { cantonMirror(evt.name, evt.op); evmMirror(evt.name, evt.op); }
     } else if (evt.type === 'resolver.changed') {
       cantonMirror(evt.name, 'update');
-      // Text records are off-chain by design — only address/owner changes hit EVM.
-      if (!String((evt as any).key || '').startsWith('text.')) evmMirror(evt.name, 'update');
+      // Text records are off-chain by design. And for consumer-controlled names,
+      // address changes go through the signed path (setAddressesSigned) — DIAL's
+      // setRecord would just no-op, so skip it here.
+      const key = String((evt as any).key || '');
+      if (!key.startsWith('text.') && !evm.isConsumerControlled(evt.name)) evmMirror(evt.name, 'update');
     }
   });
   if (evm.EVM_ENABLED) console.log('[chain-sync] EVM mirror ENABLED — writing real transactions.');
+}
+
+// Log an already-broadcast EVM write (e.g. a consumer-signed setAddressesSigned)
+// to the audit table so it appears on the On-chain page with its tx hash.
+export function logEvmWrite(name: string, op: string, txHash: string, status: string) {
+  const payload = recordPayload(name) ?? { name };
+  const id = insertRow('evm', name, op, payload, sign(payload), status);
+  db.prepare(`UPDATE chain_writes SET tx_hash = ? WHERE id = ?`).run(txHash, id);
 }
 
 function toView(r: ChainWriteRow) {

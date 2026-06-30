@@ -805,8 +805,14 @@ app.post('/v1/chains/onchain/:name/prepare-addr', async (req, res) => {
   if ((registry.ownerOf(name) || '').toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
   const value = String(req.body?.value ?? '').trim();
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) return res.status(400).json({ error: 'a valid EVM address is required' });
-  try { res.json(await evm.prepareAddressUpdate(name, { 'eip155:1': value.toLowerCase() })); }
-  catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  // Just build the typed data to sign. The controller is set at relay time from
+  // the recovered signer, so the wallet account can never mismatch.
+  try {
+    res.json(await evm.prepareAddressUpdate(name, { 'eip155:1': value.toLowerCase() }));
+  } catch (e) {
+    if (walletUnavailable(res, e as Error)) return;
+    res.status(400).json({ error: (e as Error).message });
+  }
 });
 
 app.post('/v1/chains/onchain/:name/relay-addr', async (req, res) => {
@@ -819,11 +825,20 @@ app.post('/v1/chains/onchain/:name/relay-addr', async (req, res) => {
     return res.status(400).json({ error: 'nameHash, addressesHash, seq, deadline, signature, value required' });
   }
   try {
+    // Recover whoever actually signed and make THAT the on-chain controller — so
+    // the contract's own recovery is guaranteed to match (no BadSignature).
+    const signer = await evm.recoverAddrSigner(nameHash, addressesHash, seq, deadline, signature);
+    await evm.ensureController(name, signer);
     const out = await evm.enqueueSetAddressesSigned(nameHash, addressesHash, seq, deadline, signature);
+    // Surface the consumer-signed tx on the On-chain page (with its Etherscan link).
+    chainSync.logEvmWrite(name, 'addr · signed', out.hash, out.status);
     // Reflect the consumer-set address in DIAL's DB (the public page / resolver).
     resolver.setAddr(c, name, 'eip155:1', String(value).toLowerCase());
-    res.json({ ...out, name });
-  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+    res.json({ ...out, name, controller: signer });
+  } catch (e) {
+    if (walletUnavailable(res, e as Error)) return;
+    res.status(400).json({ error: (e as Error).message });
+  }
 });
 
 app.get('/v1/chains/:chain', (req, res) => {

@@ -23,6 +23,12 @@ export const EVM_ENABLED = process.env.DIAL_EVM_ENABLED === 'true';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ABI = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'contracts', 'DialRegistry.abi.json'), 'utf8'));
+const NFT_ABI = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'contracts', 'DialName.abi.json'), 'utf8'));
+
+// DIAL names as ERC-721 NFTs (optional, env-gated). Minted to a consumer's
+// wallet when they take control — so the name persists in their wallet.
+const NFT_ADDRESS = process.env.DIAL_NAME_NFT_ADDRESS || '';
+export const NFT_ENABLED = !!NFT_ADDRESS;
 
 const NETWORK = (process.env.DIAL_EVM_NETWORK || 'sepolia').toLowerCase();
 const EXPLORERS: Record<string, string | null> = {
@@ -154,6 +160,57 @@ export async function readController(name: string): Promise<string> {
   return c.pub.readContract({ address: c.address, abi: ABI, functionName: 'controllerOf', args: [nameHashOf(c.viem, name)] }) as Promise<string>;
 }
 
+// Names known to be consumer-controlled (in-memory). chain-sync uses this to
+// skip the redundant setRecord for their address changes — those go through the
+// signed path. Lost on restart (harmless: setRecord just no-ops for them).
+const controlled = new Set<string>();
+export function isConsumerControlled(name: string): boolean { return controlled.has(normName(name)); }
+
+// Ensure a name's on-chain controller IS the given wallet — set it if missing or
+// different (e.g. after a contract redeploy) — AND mint the name NFT to that
+// wallet (so the name lives in their wallet). Returns once confirmed on-chain.
+export async function ensureController(name: string, wallet: string): Promise<{ controller: string; changed: boolean }> {
+  const c = await ctx();
+  const target = c.viem.getAddress(wallet);
+  const current = await readController(name);
+  controlled.add(normName(name));
+  const changed = !(current && current.toLowerCase() === target.toLowerCase());
+  if (changed) await enqueueSetController(name, target);
+  if (NFT_ENABLED) {
+    const nft = await readNftOwner(name);
+    if (!nft || nft.owner.toLowerCase() !== target.toLowerCase()) {
+      try { await enqueueMintName(name, target); } catch { /* already held by another wallet — can't seize */ }
+    }
+  }
+  return { controller: target, changed };
+}
+
+// ── DIAL names as NFTs ──
+function nftAddr(viem: any): Hex { return viem.getAddress(NFT_ADDRESS); }
+function tokenIdFor(viem: any, name: string): bigint { return BigInt(viem.keccak256(viem.toBytes(normName(name)))); }
+
+// Who holds the name NFT (null if not minted). Reads ownerOf live from chain.
+export async function readNftOwner(name: string): Promise<{ owner: string; tokenId: string; contract: string } | null> {
+  if (!NFT_ENABLED) return null;
+  const c = await ctx();
+  try {
+    const owner = await c.pub.readContract({ address: nftAddr(c.viem), abi: NFT_ABI, functionName: 'ownerOf', args: [tokenIdFor(c.viem, name)] }) as string;
+    return { owner, tokenId: tokenIdFor(c.viem, name).toString(), contract: nftAddr(c.viem) };
+  } catch { return null; } // ownerOf reverts when not minted
+}
+
+// Mint the name NFT to a wallet (DIAL is the minter). No-op if already theirs;
+// reverts if already held by a different wallet (can't seize a held name).
+export function enqueueMintName(name: string, to: string) {
+  return enqueue(async () => {
+    const c = await ctx();
+    const { request } = await c.pub.simulateContract({ account: c.account, address: nftAddr(c.viem), abi: NFT_ABI, functionName: 'mint', args: [normName(name), c.viem.getAddress(to)] });
+    const hash = await c.wallet.writeContract(request);
+    await c.pub.waitForTransactionReceipt({ hash });
+    return { hash };
+  });
+}
+
 // DIAL hands address-control of a name to a consumer wallet (bootstrapped from
 // the SIWE wallet-link). owner-only tx; goes through the shared queue.
 export function enqueueSetController(name: string, controller: string) {
@@ -178,15 +235,39 @@ export async function prepareAddressUpdate(name: string, overrides: Record<strin
   const seq = current + 1n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
   const typedData = {
+    // EIP712Domain MUST be present for MetaMask's eth_signTypedData_v4 (viem adds
+    // it implicitly; MetaMask requires it spelled out).
+    domain: { name: 'DIAL', version: '1', chainId: c.chainId, verifyingContract: c.address },
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
+      ],
+      SetAddresses: [
+        { name: 'nameHash', type: 'bytes32' }, { name: 'addressesHash', type: 'bytes32' },
+        { name: 'seq', type: 'uint64' }, { name: 'deadline', type: 'uint256' },
+      ],
+    },
+    primaryType: 'SetAddresses',
+    message: { nameHash, addressesHash: addrHash, seq: seq.toString(), deadline: deadline.toString() },
+  };
+  return { typedData, nameHash, addressesHash: addrHash, seq: seq.toString(), deadline: deadline.toString(), addresses: merged };
+}
+
+// Recover the address that signed a SetAddresses message — the source of truth
+// for who the controller must be (matches the contract's recovery exactly).
+export async function recoverAddrSigner(nameHash: string, addressesHash: string, seq: string, deadline: string, signature: string): Promise<string> {
+  const c = await ctx();
+  return c.viem.recoverTypedDataAddress({
     domain: { name: 'DIAL', version: '1', chainId: c.chainId, verifyingContract: c.address },
     types: { SetAddresses: [
       { name: 'nameHash', type: 'bytes32' }, { name: 'addressesHash', type: 'bytes32' },
       { name: 'seq', type: 'uint64' }, { name: 'deadline', type: 'uint256' },
     ] },
     primaryType: 'SetAddresses',
-    message: { nameHash, addressesHash: addrHash, seq: seq.toString(), deadline: deadline.toString() },
-  };
-  return { typedData, nameHash, addressesHash: addrHash, seq: seq.toString(), deadline: deadline.toString(), addresses: merged };
+    message: { nameHash: nameHash as Hex, addressesHash: addressesHash as Hex, seq: BigInt(seq), deadline: BigInt(deadline) },
+    signature: signature as Hex,
+  });
 }
 
 // Relay a consumer's signed address update on-chain (DIAL pays gas, can't forge).
@@ -213,6 +294,7 @@ export async function readRecord(name: string) {
   const rec: any = await pub.readContract({ address, abi: ABI, functionName: 'getRecord', args: [nameHash] });
   const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
   const found = Number(rec.seq) > 0 || (rec.owner && rec.owner.toLowerCase() !== ZERO_ADDR);
+  const nft = await readNftOwner(lname); // who holds the name NFT (null if unminted)
   return {
     name: lname, nameHash, chainId, contract: address,
     explorerBase: EXPLORERS[NETWORK] ?? null,
@@ -224,5 +306,6 @@ export async function readRecord(name: string) {
     seq: Number(rec.seq),
     released: rec.released,
     updatedAt: Number(rec.updatedAt),
+    nft,
   };
 }

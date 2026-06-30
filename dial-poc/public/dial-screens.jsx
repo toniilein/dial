@@ -75,6 +75,7 @@ function DialTopBar() {
 
       <div className="dial-topbar-spacer" />
 
+      <TopWalletChip />
 
       <div ref={cartRef} style={{ position: 'relative' }}
         onMouseEnter={openCart} onMouseLeave={closeCartSoon}>
@@ -609,6 +610,120 @@ function WalletCard() {
 }
 window.WalletCard = WalletCard;
 
+// Wallet readiness bar — connect MetaMask + put it on the right network before
+// signing on-chain. Reads window.ethereum directly; reacts to account/chain changes.
+const CHAIN_NAMES = { '0x1': 'Ethereum Mainnet', '0xaa36a7': 'Sepolia', '0x5': 'Goerli', '0x7a69': 'anvil (local)' };
+function WalletBar({ cfg }) {
+  const eth = (typeof window !== 'undefined') ? window.ethereum : null;
+  const [account, setAccount] = React.useState(null);
+  const [chainId, setChainId] = React.useState(null);
+  const [busy, setBusy]       = React.useState(false);
+  const [err, setErr]         = React.useState(null);
+
+  const refresh = React.useCallback(async () => {
+    if (!eth) return;
+    try {
+      const accs = await eth.request({ method: 'eth_accounts' });
+      setAccount((accs && accs[0]) || null);
+      setChainId(await eth.request({ method: 'eth_chainId' }));
+    } catch {}
+  }, [eth]);
+  React.useEffect(() => {
+    refresh();
+    if (!eth || !eth.on) return;
+    const onA = (a) => setAccount((a && a[0]) || null);
+    const onC = (c) => setChainId(c);
+    eth.on('accountsChanged', onA); eth.on('chainChanged', onC);
+    return () => { eth.removeListener && eth.removeListener('accountsChanged', onA); eth.removeListener && eth.removeListener('chainChanged', onC); };
+  }, [eth, refresh]);
+
+  const targetHex = cfg && cfg.chainId ? '0x' + Number(cfg.chainId).toString(16) : null;
+  const onTarget  = !!(chainId && targetHex && chainId.toLowerCase() === targetHex.toLowerCase());
+  const netName   = chainId ? (CHAIN_NAMES[chainId.toLowerCase()] || ('chainId ' + parseInt(chainId, 16))) : '—';
+  const short     = (a) => a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
+
+  const connect = async () => { setErr(null); setBusy(true); try { await eth.request({ method: 'eth_requestAccounts' }); await refresh(); } catch (e) { setErr(e.message || String(e)); } finally { setBusy(false); } };
+  const switchNet = async () => {
+    setErr(null); setBusy(true);
+    try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }); await refresh(); }
+    catch (e) { setErr(e && e.code === 4902 ? 'Network not in your wallet — enable test networks (MetaMask → Settings → Advanced).' : (e.message || String(e))); }
+    finally { setBusy(false); }
+  };
+
+  const target = cfg ? (cfg.network || 'the network') : 'the network';
+
+  return (
+    <div className="dial-card" style={{ padding: 16, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <Wallet size={18} stroke={account ? 'var(--dial-ok)' : 'var(--dial-muted)'} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {!eth ? 'No Ethereum wallet detected' : account ? <>Connected <code className="dial-mono dial-muted" style={{ fontSize: 12, marginLeft: 4 }}>{short(account)}</code></> : 'Wallet not connected'}
+            </div>
+            {eth && <div className="dial-muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+              Network: {netName} {account && (onTarget
+                ? <span className="dial-pill ok" style={{ fontSize: 9.5, marginLeft: 4 }}>READY</span>
+                : <span className="dial-pill warn" style={{ fontSize: 9.5, marginLeft: 4 }}>switch to {target}</span>)}
+            </div>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {!eth
+            ? <a className="dial-btn sm" href="https://metamask.io/download/" target="_blank" rel="noreferrer">Install MetaMask</a>
+            : !account
+              ? <button className="dial-btn primary sm" onClick={connect} disabled={busy}><Wallet size={13} stroke="#fff" /> {busy ? 'Connecting…' : 'Connect wallet'}</button>
+              : !onTarget
+                ? <button className="dial-btn primary sm" onClick={switchNet} disabled={busy || !targetHex}>{busy ? 'Switching…' : 'Switch to ' + target}</button>
+                : <button className="dial-btn sm" onClick={refresh} disabled={busy}><Refresh size={12} /> Refresh</button>}
+        </div>
+      </div>
+      {err && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+        color: 'var(--dial-accent)', padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginTop: 12, fontSize: 12 }}>{err}</div>}
+    </div>
+  );
+}
+
+// Compact wallet chip for the top bar — connect, show the network, or switch.
+// Hidden when no wallet is present (the On-chain page handles the install case).
+function TopWalletChip() {
+  const eth = (typeof window !== 'undefined') ? window.ethereum : null;
+  const [account, setAccount] = React.useState(null);
+  const [chainId, setChainId] = React.useState(null);
+  const [cfg, setCfg]         = React.useState(null);
+  const [busy, setBusy]       = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    if (!eth) return;
+    try { const a = await eth.request({ method: 'eth_accounts' }); setAccount((a && a[0]) || null); setChainId(await eth.request({ method: 'eth_chainId' })); } catch {}
+  }, [eth]);
+  React.useEffect(() => {
+    fetch('/v1/chains/config').then(r => r.json()).then(setCfg).catch(() => {});
+    refresh();
+    if (!eth || !eth.on) return;
+    const onA = (a) => setAccount((a && a[0]) || null);
+    const onC = (c) => setChainId(c);
+    eth.on('accountsChanged', onA); eth.on('chainChanged', onC);
+    return () => { eth.removeListener && eth.removeListener('accountsChanged', onA); eth.removeListener && eth.removeListener('chainChanged', onC); };
+  }, [eth, refresh]);
+
+  if (!eth) return null;
+  const targetHex = cfg && cfg.chainId ? '0x' + Number(cfg.chainId).toString(16) : null;
+  const onTarget  = !!(chainId && targetHex && chainId.toLowerCase() === targetHex.toLowerCase());
+  const target    = cfg ? (cfg.network || 'network') : 'network';
+  const short     = (a) => a ? a.slice(0, 5) + '…' + a.slice(-4) : '';
+  const act = async (fn) => { setBusy(true); try { await fn(); await refresh(); } catch {} finally { setBusy(false); } };
+
+  if (!account) return <button className="dial-btn sm" onClick={() => act(() => eth.request({ method: 'eth_requestAccounts' }))} disabled={busy}><Wallet size={13} /> {busy ? '…' : 'Connect wallet'}</button>;
+  if (!onTarget) return <button className="dial-btn sm" onClick={() => act(() => eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }))} disabled={busy || !targetHex} title={'Switch to ' + target} style={{ borderColor: 'var(--dial-warn)', color: 'var(--dial-warn)' }}><Wallet size={13} /> Switch to {target}</button>;
+  return (
+    <div className="dial-btn sm" title={account + ' · ' + target} style={{ cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--dial-ok)', display: 'inline-block' }} />
+      <code className="dial-mono" style={{ fontSize: 11 }}>{short(account)}</code>
+    </div>
+  );
+}
+
 // On-chain mirror explorer — shows DIAL records mirrored to the EVM (Sepolia)
 // and Canton. When the EVM mirror is live, each row links to the real tx on a
 // block explorer; in mock mode it shows the DIAL-signed local log.
@@ -700,6 +815,9 @@ function ScreenChains() {
         </div>
       </div>
 
+      {/* Wallet — connect + switch to the right network before signing */}
+      <WalletBar cfg={cfg} />
+
       {/* On-chain lookup — read a record straight from the contract */}
       <div className="dial-card" style={{ padding: 16, marginBottom: 18 }}>
         <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>On-chain lookup</h3>
@@ -734,8 +852,18 @@ function ScreenChains() {
                 <code className="dial-mono" style={{ fontSize: 12 }}>{v}</code>
               </div>
             ))}
+            {lookupResult.nft && (
+              <div style={{ padding: '10px 12px', borderTop: 'var(--dial-border-w) solid var(--dial-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <span className="dial-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.03em', fontSize: 10.5 }}>NFT owner</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <code className="dial-mono" style={{ fontSize: 12 }}>{short(lookupResult.nft.owner, 8, 6)}</code>
+                  {lookupResult.explorerBase && <a style={{ fontSize: 11, color: 'var(--dial-accent)' }} target="_blank" rel="noreferrer"
+                    href={lookupResult.explorerBase + '/token/' + lookupResult.nft.contract + '?a=' + lookupResult.nft.tokenId}>view NFT <External size={11} /></a>}
+                </span>
+              </div>
+            )}
             <div style={{ padding: '8px 12px', borderTop: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-bg-soft)' }}>
-              <span className="dial-muted" style={{ fontSize: 10.5 }}>read live via <code className="dial-mono">getRecord()</code> from {short(lookupResult.contract, 8, 6)} · chainId {lookupResult.chainId}</span>
+              <span className="dial-muted" style={{ fontSize: 10.5 }}>read live via <code className="dial-mono">getRecord()</code> from {short(lookupResult.contract, 8, 6)} · chainId {lookupResult.chainId}{lookupResult.nft ? ' · name held as an NFT' : ''}</span>
             </div>
           </div>
         ) : (
