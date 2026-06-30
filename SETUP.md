@@ -97,7 +97,7 @@ forge create contracts/DialName.sol:DialName \
 The deployer EOA is both the contract `owner` and the off-chain **claim-voucher signer** (`dialSigner`, set in the constructor). In full self-custody it sends no per-user transactions.
 
 > A live testnet deployment already exists if you just want to interact:
-> `DialRegistry` `0xfb127e880496f4201c18a1aecea7f0d1b338a495`, `DialName` `0xb33be4f6a992dee9c94bef3c915348286afc97f4` (Sepolia). For development, deploy your own.
+> `DialRegistry` `0xfb127e880496f4201c18a1aecea7f0d1b338a495`, `DialName` `0x16aecfa8809da2089f0b5653eb5866bd02003b1c` (Sepolia). For development, deploy your own.
 
 ---
 

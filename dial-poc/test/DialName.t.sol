@@ -75,4 +75,15 @@ contract DialNameTest {
         vm.expectRevert(DialName.NotController.selector);
         nft.claim("alice.dial");
     }
+
+    // tokenURI must be a base64 JSON data-URI (parseable by wallets/explorers) —
+    // the old `;utf8,` form made them show "DIAL Names #<tokenId>".
+    function testTokenUriIsBase64Json() public {
+        reg.set(bytes32(_id("alice.dial")), alice);
+        vm.prank(alice); nft.claim("alice.dial");
+        bytes memory u = bytes(nft.tokenURI(_id("alice.dial")));
+        bytes memory pfx = bytes("data:application/json;base64,");
+        require(u.length > pfx.length, "uri too short");
+        for (uint256 i = 0; i < pfx.length; i++) require(u[i] == pfx[i], "bad prefix");
+    }
 }

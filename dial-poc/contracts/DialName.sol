@@ -88,13 +88,55 @@ contract DialName {
     function tokenURI(uint256 id) external view returns (string memory) {
         string memory n = nameOf[id];
         if (bytes(n).length == 0) revert NoToken();
-        return string(abi.encodePacked(
-            'data:application/json;utf8,{"name":"', n,
-            '","description":"A DIAL name, owned on-chain.","attributes":[{"trait_type":"namespace","value":"DIAL"}]}'
+        // Render an on-chain SVG card with the NAME, and base64-encode both the
+        // image and the JSON — the data-URI format wallets/explorers actually parse
+        // (the old `;utf8,` variant fell back to "DIAL Names #<tokenId>").
+        string memory svg = string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">',
+            '<rect width="500" height="500" fill="#0b1020"/>',
+            '<text x="50%" y="47%" fill="#ffffff" font-size="30" font-weight="bold" font-family="monospace" text-anchor="middle">', n, '</text>',
+            '<text x="50%" y="57%" fill="#6b8cff" font-size="15" font-family="sans-serif" text-anchor="middle">DIAL name - owned on-chain</text>',
+            '</svg>'
         ));
+        string memory json = string(abi.encodePacked(
+            '{"name":"', n, '","description":"A DIAL name, owned on-chain.",',
+            '"image":"data:image/svg+xml;base64,', Base64.encode(bytes(svg)),
+            '","attributes":[{"trait_type":"namespace","value":"DIAL"}]}'
+        ));
+        return string(abi.encodePacked('data:application/json;base64,', Base64.encode(bytes(json))));
     }
 
     function supportsInterface(bytes4 iid) external pure returns (bool) {
         return iid == 0x80ac58cd || iid == 0x5b5e139f || iid == 0x01ffc9a7; // ERC721, Metadata, ERC165
+    }
+}
+
+/// @dev Minimal Base64 encoder (Brecht Devos / MIT) — for on-chain data-URI metadata.
+library Base64 {
+    string internal constant _TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    function encode(bytes memory data) internal pure returns (string memory) {
+        if (data.length == 0) return "";
+        string memory table = _TABLE;
+        uint256 encodedLen = 4 * ((data.length + 2) / 3);
+        string memory result = new string(encodedLen + 32);
+        assembly {
+            mstore(result, encodedLen)
+            let tablePtr := add(table, 1)
+            let dataPtr := data
+            let endPtr := add(dataPtr, mload(data))
+            let resultPtr := add(result, 32)
+            for {} lt(dataPtr, endPtr) {} {
+                dataPtr := add(dataPtr, 3)
+                let input := mload(dataPtr)
+                mstore8(resultPtr, mload(add(tablePtr, and(shr(18, input), 0x3F)))) resultPtr := add(resultPtr, 1)
+                mstore8(resultPtr, mload(add(tablePtr, and(shr(12, input), 0x3F)))) resultPtr := add(resultPtr, 1)
+                mstore8(resultPtr, mload(add(tablePtr, and(shr(6, input), 0x3F)))) resultPtr := add(resultPtr, 1)
+                mstore8(resultPtr, mload(add(tablePtr, and(input, 0x3F)))) resultPtr := add(resultPtr, 1)
+            }
+            switch mod(mload(data), 3)
+            case 1 { mstore8(sub(resultPtr, 1), 0x3d) mstore8(sub(resultPtr, 2), 0x3d) }
+            case 2 { mstore8(sub(resultPtr, 1), 0x3d) }
+        }
+        return result;
     }
 }
