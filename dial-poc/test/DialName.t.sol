@@ -5,14 +5,21 @@ import {DialName} from "../contracts/DialName.sol";
 
 interface Vm { function prank(address) external; function expectRevert(bytes4) external; }
 
+// Stand-in for DialRegistry's controllerOf lookup (self-mint authority).
+contract MockController {
+    mapping(bytes32 => address) public controllerOf;
+    function set(bytes32 nh, address c) external { controllerOf[nh] = c; }
+}
+
 contract DialNameTest {
     Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
     DialName nft;
+    MockController reg;
     address minter = address(0xD1A1);
     address alice  = address(0xA11CE);
     address bob    = address(0xB0B);
 
-    function setUp() public { nft = new DialName(minter); }
+    function setUp() public { reg = new MockController(); nft = new DialName(minter, address(reg)); }
     function _id(string memory n) internal pure returns (uint256) { return uint256(keccak256(bytes(n))); }
 
     function testMintAndOwn() public {
@@ -51,5 +58,21 @@ contract DialNameTest {
     function testSupportsErc721() public view {
         require(nft.supportsInterface(0x80ac58cd), "ERC721");
         require(nft.supportsInterface(0x5b5e139f), "Metadata");
+    }
+
+    // ── self-custody: the name's on-chain controller mints its own token + pays gas ──
+    function testControllerSelfMints() public {
+        reg.set(bytes32(_id("alice.dial")), alice);
+        vm.prank(alice);
+        nft.claim("alice.dial");
+        require(nft.ownerOf(_id("alice.dial")) == alice, "self-minted to controller");
+        require(nft.balanceOf(alice) == 1, "balance");
+    }
+
+    function testClaimRejectsNonController() public {
+        reg.set(bytes32(_id("alice.dial")), alice);
+        vm.prank(bob); // not the registry's controller
+        vm.expectRevert(DialName.NotController.selector);
+        nft.claim("alice.dial");
     }
 }

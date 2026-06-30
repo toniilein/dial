@@ -1948,13 +1948,16 @@ function EvmEditor({ name }) {
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
   };
-  // Decentralised path: the consumer signs the update in their own wallet; DIAL
-  // relays it. Available once the wallet is linked (= the name's on-chain controller).
+  // Full self-custody: the consumer's OWN wallet sends every tx and pays the gas
+  // (claim control → set address → mint the name NFT). DIAL only signs an
+  // off-chain voucher. Available once the wallet is linked.
   const saveSigned = async () => {
     setErr(null); setSaving(true);
     try {
-      const res = await updateEvmAddressSigned(dispatch, name.name, value);
-      if (res && res.nft && res.explorerBase) setNft({ ...res.nft, explorerBase: res.explorerBase });
+      await selfCustodyOnchain(dispatch, name.name, value);
+      await dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name))
+        .then(r => { if (r && r.nft && r.explorerBase) setNft({ ...r.nft, explorerBase: r.explorerBase }); })
+        .catch(() => {});
       await fetchOrgNames(state, dispatch, state.org); // refresh the record
       setOpen(false);
     } catch (e) { setErr(e.message || String(e)); }
@@ -2006,8 +2009,8 @@ function EvmEditor({ name }) {
       {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>{err}</div>}
       <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>
         {walletLinked
-          ? <>Your wallet controls this address on-chain — <strong>you</strong> sign the update, DIAL just relays it (gasless). DIAL can't change it.</>
-          : <>Saved off-chain by DIAL. Link your Ethereum wallet to control this address on-chain yourself.</>}
+          ? <>Full self-custody: <strong>your</strong> wallet sends each transaction and pays the gas — claim control, set the address, mint the name NFT. DIAL only signs an off-chain voucher and can't change it.</>
+          : <>Saved off-chain by DIAL. Link your Ethereum wallet to take this on-chain yourself.</>}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         <button className="dial-btn sm" onClick={() => { setOpen(false); setValue(current); setErr(null); }} disabled={saving}>Cancel</button>
@@ -2016,7 +2019,7 @@ function EvmEditor({ name }) {
         </button>
         {walletLinked && (
           <button className="dial-btn primary sm" onClick={saveSigned} disabled={!valid || saving}>
-            {saving ? <><Spinner size={12} stroke="#fff" /> Sign…</> : <><Shield size={12} stroke="#fff" /> Sign &amp; set on-chain</>}
+            {saving ? <><Spinner size={12} stroke="#fff" /> On-chain…</> : <><Shield size={12} stroke="#fff" /> Set on-chain (you pay gas)</>}
           </button>
         )}
       </div>

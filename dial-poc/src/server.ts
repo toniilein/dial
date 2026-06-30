@@ -844,6 +844,63 @@ app.post('/v1/chains/onchain/:name/relay-addr', async (req, res) => {
   }
 });
 
+// ── Full self-custody — the consumer does EVERYTHING on-chain and pays the gas ──
+// DIAL signs an off-chain claim voucher; the consumer's own wallet submits the
+// transactions (claim control → set address → self-mint the NFT). DIAL never
+// sends a transaction. `selfcustody-txs` returns the UNSIGNED txs to send;
+// `selfcustody-confirm` is bookkeeping after the wallet sends them.
+app.post('/v1/chains/onchain/:name/selfcustody-txs', async (req, res) => {
+  const c = requireCaller(req, res); if (!c) return;
+  if (!evm.EVM_ENABLED) return res.status(503).json({ error: 'on-chain mirror is not enabled' });
+  const name = req.params.name.toLowerCase();
+  if ((registry.ownerOf(name) || '').toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
+  const from = String(req.body?.from ?? '').trim();
+  const value = String(req.body?.value ?? '').trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(from)) return res.status(400).json({ error: 'a connected wallet (from) is required' });
+  if (value && !/^0x[0-9a-fA-F]{40}$/.test(value)) return res.status(400).json({ error: 'value must be a valid EVM address' });
+  try {
+    const steps: any[] = [];
+    // 1. Claim control — skip if this wallet already controls the name on-chain.
+    const ctrl = await evm.readController(name).catch(() => '');
+    if (!ctrl || ctrl.toLowerCase() !== from.toLowerCase()) {
+      steps.push({ op: 'claim', label: 'Claim control', ...(await evm.buildClaimTx(name, from)) });
+    }
+    // 2. Set the address (only when one was provided).
+    if (value) {
+      steps.push({ op: 'setAddresses', label: 'Set address', value: value.toLowerCase(), ...(await evm.buildSetAddressesTx(name, { 'eip155:1': value.toLowerCase() })) });
+    }
+    // 3. Self-mint the name NFT — skip if this wallet already holds it.
+    const nftOwner = await evm.readNftOwner(name).catch(() => null);
+    if (evm.NFT_ENABLED && (!nftOwner || nftOwner.owner.toLowerCase() !== from.toLowerCase())) {
+      const m = await evm.buildMintTx(name);
+      if (m) steps.push({ op: 'mint', label: 'Mint name NFT', ...m });
+    }
+    const cfg = await evm.config().catch(() => null);
+    res.json({ name, from, steps, explorerBase: cfg ? (cfg as any).explorerBase : null });
+  } catch (e) {
+    if (walletUnavailable(res, e as Error)) return;
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+app.post('/v1/chains/onchain/:name/selfcustody-confirm', async (req, res) => {
+  const c = requireCaller(req, res); if (!c) return;
+  if (!evm.EVM_ENABLED) return res.status(503).json({ error: 'on-chain mirror is not enabled' });
+  const name = req.params.name.toLowerCase();
+  if ((registry.ownerOf(name) || '').toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
+  const { op, txHash, value } = req.body ?? {};
+  if (typeof op !== 'string' || typeof txHash !== 'string') return res.status(400).json({ error: 'op + txHash required' });
+  try {
+    evm.markControlled(name); // self-custody: DIAL stops mirroring this name's writes
+    const labels: Record<string, string> = { claim: 'claim · self', setAddresses: 'addr · self', mint: 'nft · self' };
+    chainSync.logEvmWrite(name, labels[op] || op, txHash, 'confirmed');
+    if (op === 'setAddresses' && typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value)) {
+      resolver.setAddr(c, name, 'eip155:1', value.toLowerCase()); // reflect in DIAL's DB (chain-sync skips: controlled)
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+
 app.get('/v1/chains/:chain', (req, res) => {
   const chain = req.params.chain.toLowerCase();
   if (chain !== 'canton' && chain !== 'evm') return res.status(400).json({ error: 'unknown chain' });

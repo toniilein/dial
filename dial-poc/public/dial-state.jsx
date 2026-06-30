@@ -291,6 +291,57 @@ async function updateEvmAddressSigned(dispatch, name, value) {
   throw lastErr;
 }
 
+// Poll the wallet for a tx receipt — the next self-custody step depends on the
+// previous one being MINED (claim before setAddresses before mint).
+async function waitForReceipt(eth, hash, tries = 80) {
+  for (let i = 0; i < tries; i++) {
+    const r = await eth.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+    if (r) { if (r.status && r.status !== '0x1') throw new Error('A transaction reverted on-chain.'); return r; }
+    await new Promise(res => setTimeout(res, 3000));
+  }
+  throw new Error('Timed out waiting for the transaction to confirm.');
+}
+
+// Full self-custody: the consumer's OWN wallet sends every transaction and pays
+// the gas. DIAL only signs an off-chain voucher; it never sends a tx. The wallet
+// confirms each step (claim control → set address → mint the name NFT) in order.
+async function selfCustodyOnchain(dispatch, name, value) {
+  const eth = window.ethereum;
+  if (!eth) throw new Error('Install/connect MetaMask to take this on-chain.');
+  const accounts = await eth.request({ method: 'eth_requestAccounts' });
+  const from = accounts && accounts[0];
+  if (!from) throw new Error('No wallet account selected.');
+  const base = '/v1/chains/onchain/' + encodeURIComponent(name);
+
+  // DIAL builds the unsigned txs + signs the claim voucher (off-chain, gasless).
+  const prep = await dialApi('POST', base + '/selfcustody-txs', { body: { from, value } });
+  if (!prep.steps || !prep.steps.length) {
+    dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Already yours on-chain — nothing to do.' } });
+    return prep;
+  }
+
+  // The contracts live on Sepolia — put the wallet on it before sending.
+  const cfg = await dialApi('GET', '/v1/chains/config');
+  const targetHex = '0x' + Number(cfg.chainId).toString(16);
+  if ((await eth.request({ method: 'eth_chainId' })) !== targetHex) {
+    try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }); }
+    catch (e) {
+      if (e && e.code === 4902) throw new Error('Add the Sepolia test network to your wallet, then try again.');
+      throw new Error('Switch your wallet to Sepolia (chainId ' + cfg.chainId + ') and try again.');
+    }
+  }
+
+  // Send each step FROM THE USER'S WALLET (they pay gas), waiting for each to mine.
+  for (const step of prep.steps) {
+    dispatch({ type: 'toast', toast: { kind: 'info', text: 'Confirm "' + step.label + '" in your wallet (you pay the gas)…' } });
+    const txHash = await eth.request({ method: 'eth_sendTransaction', params: [{ from, to: step.to, data: step.data, value: '0x0' }] });
+    await waitForReceipt(eth, txHash);
+    await dialApi('POST', base + '/selfcustody-confirm', { body: { op: step.op, txHash, value: step.value } });
+  }
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Done — you own it on-chain (control + address + NFT), paid from your wallet.' } });
+  return prep;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Pure helpers
 // ─────────────────────────────────────────────────────────────
@@ -961,6 +1012,7 @@ window.saveAccountAddress   = saveAccountAddress;
 window.connectWallet        = connectWallet;
 window.unlinkWallet         = unlinkWallet;
 window.updateEvmAddressSigned = updateEvmAddressSigned;
+window.selfCustodyOnchain   = selfCustodyOnchain;
 window.authStartOAuth       = authStartOAuth;
 window.authBootstrap        = authBootstrap;
 window.refreshMe            = refreshMe;

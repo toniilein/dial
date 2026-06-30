@@ -284,6 +284,63 @@ export function enqueueSetAddressesSigned(nameHash: string, addressesHash: strin
   });
 }
 
+// ── Full self-custody — DIAL signs an off-chain voucher; the consumer submits
+// every transaction itself and pays the gas. DIAL sends no on-chain tx. ──
+
+// Mark a name as consumer-controlled so chain-sync skips the DIAL-paid setRecord
+// mirror for it (self-custody: the chain is driven by the user, not DIAL).
+export function markControlled(name: string) { controlled.add(normName(name)); }
+
+// DIAL signs a Claim voucher (EIP-712) authorising `claimant` to take on-chain
+// control of `name` until `deadline`. Off-chain + gasless — DIAL's only role on
+// the chain path. The voucher is bound to `claimant`, so only that wallet can use it.
+export async function signClaimVoucher(name: string, claimant: string, deadlineSec?: number) {
+  const c = await ctx();
+  const nameHash = nameHashOf(c.viem, name);
+  const claimantAddr = c.viem.getAddress(claimant);
+  const deadline = BigInt(deadlineSec ?? Math.floor(Date.now() / 1000) + 3600);
+  const signature = await c.account.signTypedData({
+    domain: { name: 'DIAL', version: '1', chainId: c.chainId, verifyingContract: c.address },
+    types: { Claim: [
+      { name: 'nameHash', type: 'bytes32' }, { name: 'claimant', type: 'address' }, { name: 'deadline', type: 'uint256' },
+    ] },
+    primaryType: 'Claim',
+    message: { nameHash, claimant: claimantAddr, deadline },
+  });
+  return { nameHash, deadline: deadline.toString(), signature };
+}
+
+// Build the UNSIGNED claim() tx for the consumer's wallet to send (they pay gas).
+export async function buildClaimTx(name: string, claimant: string) {
+  const c = await ctx();
+  const { nameHash, deadline, signature } = await signClaimVoucher(name, claimant);
+  const data = c.viem.encodeFunctionData({ abi: ABI, functionName: 'claim', args: [nameHash, BigInt(deadline), signature] });
+  return { to: c.address, data, value: '0x0', nameHash, deadline };
+}
+
+// Build the UNSIGNED setAddresses() tx — controller-direct, no signature needed
+// (msg.sender is the proof). Reads seq from chain. Consumer sends it + pays gas.
+export async function buildSetAddressesTx(name: string, overrides: Record<string, string>) {
+  const c = await ctx();
+  const lname = normName(name);
+  const nameHash = nameHashOf(c.viem, lname);
+  const merged = { ...resolver.getAddresses(lname), ...overrides };
+  const addrHash = addressesHash(c.viem, merged);
+  const current = await c.pub.readContract({ address: c.address, abi: ABI, functionName: 'seqOf', args: [nameHash] }) as bigint;
+  const seq = current + 1n;
+  const data = c.viem.encodeFunctionData({ abi: ABI, functionName: 'setAddresses', args: [nameHash, addrHash, seq] });
+  return { to: c.address, data, value: '0x0', nameHash, addressesHash: addrHash, seq: seq.toString(), addresses: merged };
+}
+
+// Build the UNSIGNED DialName.claim() tx — the controller self-mints its name NFT
+// and pays the gas. Returns null when the NFT contract isn't configured.
+export async function buildMintTx(name: string) {
+  if (!NFT_ENABLED) return null;
+  const c = await ctx();
+  const data = c.viem.encodeFunctionData({ abi: NFT_ABI, functionName: 'claim', args: [normName(name)] });
+  return { to: nftAddr(c.viem), data, value: '0x0', tokenId: tokenIdFor(c.viem, name).toString(), contract: nftAddr(c.viem) };
+}
+
 // Trustless lookup: read a name's record straight from the contract on-chain
 // (NOT from DIAL's DB). This is what an external dApp/wallet does.
 export async function readRecord(name: string) {

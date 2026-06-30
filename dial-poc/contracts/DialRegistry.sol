@@ -38,6 +38,10 @@ contract DialRegistry {
     // Consumer-signed address update (relayed by anyone; verified against controllerOf).
     bytes32 private constant SETADDR_TYPEHASH =
         keccak256("SetAddresses(bytes32 nameHash,bytes32 addressesHash,uint64 seq,uint256 deadline)");
+    // Self-custody claim: DIAL signs an off-chain voucher; the consumer submits it
+    // themselves (and pays the gas) to become the name's on-chain controller.
+    bytes32 private constant CLAIM_TYPEHASH =
+        keccak256("Claim(bytes32 nameHash,address claimant,uint256 deadline)");
 
     event RecordSet(bytes32 indexed nameHash, address indexed owner, uint64 expiresAt, uint64 seq, bytes32 addressesHash);
     event RecordReleased(bytes32 indexed nameHash, uint64 seq);
@@ -53,18 +57,22 @@ contract DialRegistry {
     error BadSignature();
     error NoController();
     error Expired();
+    error ClaimUnauthorized();
+    error NotController();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
     }
 
-    constructor(address initialOwner) {
+    constructor(address initialOwner, address signer) {
         owner = initialOwner;
+        dialSigner = signer; // set at deploy so the self-custody claim path is live with no extra DIAL tx
         DOMAIN_SEPARATOR = keccak256(abi.encode(
             DOMAIN_TYPEHASH, keccak256(bytes("DIAL")), keccak256(bytes("1")), block.chainid, address(this)
         ));
         emit OwnershipTransferred(address(0), initialOwner);
+        emit DialSignerChanged(signer);
     }
 
     // ── admin ──
@@ -125,6 +133,36 @@ contract DialRegistry {
     function hashSetAddresses(bytes32 nameHash, bytes32 addressesHash, uint64 seq, uint256 deadline) public view returns (bytes32) {
         bytes32 structHash = keccak256(abi.encode(SETADDR_TYPEHASH, nameHash, addressesHash, seq, deadline));
         return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+    }
+
+    // ── Full self-custody — the consumer does everything on-chain and pays the gas ──
+    // DIAL verifies identity off-chain and signs a one-shot voucher ("this wallet may
+    // control this name, until `deadline`"). The consumer submits the voucher HERE,
+    // from their own wallet, paying gas — DIAL never sends a transaction. The voucher
+    // is bound to msg.sender, so only the named claimant can use it.
+    function claim(bytes32 nameHash, uint256 deadline, bytes calldata signature) external {
+        if (dialSigner == address(0)) revert SignerNotSet();
+        if (block.timestamp > deadline) revert Expired();
+        bytes32 digest = hashClaim(nameHash, msg.sender, deadline);
+        if (_recover(digest, signature) != dialSigner) revert ClaimUnauthorized();
+        controllerOf[nameHash] = msg.sender;
+        emit ControllerSet(nameHash, msg.sender);
+    }
+
+    function hashClaim(bytes32 nameHash, address claimant, uint256 deadline) public view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(CLAIM_TYPEHASH, nameHash, claimant, deadline));
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+    }
+
+    // The controller sets its OWN addresses directly — msg.sender is the proof, so no
+    // signature is needed. The consumer pays the gas (true self-custody).
+    function setAddresses(bytes32 nameHash, bytes32 addressesHash, uint64 seq) external {
+        address ctrl = controllerOf[nameHash];
+        if (ctrl == address(0)) revert NoController();
+        if (msg.sender != ctrl) revert NotController();
+        Record storage r = _records[nameHash];
+        _apply(nameHash, r.owner, r.expiresAt, r.attestationHash, addressesHash, seq, r.released);
+        emit AddressesSet(nameHash, addressesHash, seq, ctrl);
     }
 
     function release(string calldata name, uint64 seq) external onlyOwner {

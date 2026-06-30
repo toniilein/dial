@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+interface IDialController { function controllerOf(bytes32 nameHash) external view returns (address); }
+
 /// @title DialName — DIAL names as ERC-721 NFTs, held in the owner's wallet.
 /// @notice DIAL mints a name to a consumer's wallet when that wallet takes
 /// on-chain control of it. tokenId = uint256(keccak256(name)). Once minted, the
@@ -10,7 +12,8 @@ pragma solidity ^0.8.24;
 contract DialName {
     string public constant name = "DIAL Names";
     string public constant symbol = "DIAL";
-    address public owner; // DIAL minter
+    address public owner;    // DIAL minter (legacy owner-relayer path)
+    address public registry; // DialRegistry — source of truth for who controls a name (self-mint path)
 
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;
@@ -27,9 +30,10 @@ contract DialName {
     error AlreadyOwned();
     error ZeroAddress();
     error NoToken();
+    error NotController();
 
     modifier onlyMinter() { if (msg.sender != owner) revert NotMinter(); _; }
-    constructor(address minter) { owner = minter; }
+    constructor(address minter, address registry_) { owner = minter; registry = registry_; }
 
     function tokenIdFor(string calldata dialName) external pure returns (uint256) { return uint256(keccak256(bytes(dialName))); }
 
@@ -46,6 +50,20 @@ contract DialName {
         if (prev != address(0)) revert AlreadyOwned();
         _owners[id] = to; _balances[to] += 1; nameOf[id] = dialName;
         emit Transfer(address(0), to, id);
+    }
+
+    /// @notice Self-mint: the name's on-chain controller (per DialRegistry) mints its
+    /// OWN token and pays the gas. No minter privilege needed — the registry is the
+    /// authority. No-op if already held by the caller; reverts if held by another.
+    function claim(string calldata dialName) external returns (uint256) {
+        uint256 id = uint256(keccak256(bytes(dialName)));
+        if (IDialController(registry).controllerOf(bytes32(id)) != msg.sender) revert NotController();
+        address prev = _owners[id];
+        if (prev == msg.sender) return id;
+        if (prev != address(0)) revert AlreadyOwned();
+        _owners[id] = msg.sender; _balances[msg.sender] += 1; nameOf[id] = dialName;
+        emit Transfer(address(0), msg.sender, id);
+        return id;
     }
 
     function approve(address to, uint256 id) external {

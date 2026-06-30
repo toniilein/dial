@@ -19,14 +19,17 @@ if (!rpc || !pk) {
   process.exit(1);
 }
 
-const abiPath = path.join(contractsDir, 'DialRegistry.abi.json');
-const bytePath = path.join(contractsDir, 'DialRegistry.bytecode.json');
-if (!fs.existsSync(bytePath)) {
-  console.error('Missing contracts/DialRegistry.bytecode.json — run `npm run compile:evm` first.');
-  process.exit(1);
-}
-const abi = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
-const { bytecode } = JSON.parse(fs.readFileSync(bytePath, 'utf8'));
+const load = (name: string) => {
+  const bytePath = path.join(contractsDir, name + '.bytecode.json');
+  if (!fs.existsSync(bytePath)) {
+    console.error('Missing contracts/' + name + '.bytecode.json — run `npm run compile:evm` first.');
+    process.exit(1);
+  }
+  return {
+    abi: JSON.parse(fs.readFileSync(path.join(contractsDir, name + '.abi.json'), 'utf8')),
+    bytecode: JSON.parse(fs.readFileSync(bytePath, 'utf8')).bytecode,
+  };
+};
 
 const account = privateKeyToAccount((pk.startsWith('0x') ? pk : '0x' + pk) as `0x${string}`);
 const transport = http(rpc, { timeout: 60_000 });
@@ -35,13 +38,25 @@ const pub = createPublicClient({ transport });
 
 const chainId = await pub.getChainId();
 const balance = await pub.getBalance({ address: account.address });
-console.log(`Deploying DialRegistry as ${account.address} on chainId ${chainId} (balance ${balance} wei)…`);
+console.log(`Deploying as ${account.address} on chainId ${chainId} (balance ${balance} wei)…`);
 if (balance === 0n) console.warn('⚠  Deployer balance is 0 — fund it from a faucet first, or the deploy will fail.');
 
-const hash = await wallet.deployContract({ abi, bytecode, args: [account.address] });
-console.log('  deploy tx:', hash);
-const receipt = await pub.waitForTransactionReceipt({ hash });
-if (receipt.status !== 'success') { console.error('Deploy reverted.'); process.exit(1); }
+const deploy = async (name: string, args: any[]) => {
+  const { abi, bytecode } = load(name);
+  const hash = await wallet.deployContract({ abi, bytecode, args });
+  console.log('  ' + name + ' deploy tx:', hash);
+  const receipt = await pub.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') { console.error(name + ' deploy reverted.'); process.exit(1); }
+  console.log('  ✅ ' + name + ' at:', receipt.contractAddress);
+  return receipt.contractAddress as `0x${string}`;
+};
 
-console.log('\n✅ DialRegistry deployed at:', receipt.contractAddress);
-console.log('   Set this in your env:  DIAL_REGISTRY_ADDRESS=' + receipt.contractAddress);
+// DialRegistry(owner, dialSigner) — the deployer is BOTH the admin owner and the
+// off-chain claim-voucher signer. In full self-custody it sends no per-user txs.
+const registry = await deploy('DialRegistry', [account.address, account.address]);
+// DialName(minter, registry) — registry is the controllerOf authority for self-mint.
+const nameNft = await deploy('DialName', [account.address, registry]);
+
+console.log('\n✅ Deployed. Set these in your env:');
+console.log('   DIAL_REGISTRY_ADDRESS=' + registry);
+console.log('   DIAL_NAME_NFT_ADDRESS=' + nameNft);

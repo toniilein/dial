@@ -5,6 +5,11 @@
         "internalType": "address",
         "name": "initialOwner",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "signer",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -38,12 +43,22 @@
   },
   {
     "inputs": [],
+    "name": "ClaimUnauthorized",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "Expired",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "NoController",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotController",
     "type": "error"
   },
   {
@@ -211,6 +226,29 @@
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "nameHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "signature",
+        "type": "bytes"
+      }
+    ],
+    "name": "claim",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
       }
@@ -290,6 +328,35 @@
         "internalType": "struct DialRegistry.Record",
         "name": "",
         "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "nameHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "claimant",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      }
+    ],
+    "name": "hashClaim",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
@@ -426,6 +493,29 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "nameHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "addressesHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "seq",
+        "type": "uint64"
+      }
+    ],
+    "name": "setAddresses",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

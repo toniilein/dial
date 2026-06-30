@@ -11,6 +11,7 @@ interface Vm {
     function expectRevert(bytes calldata) external;
     function addr(uint256) external pure returns (address);
     function sign(uint256, bytes32) external pure returns (uint8, bytes32, bytes32);
+    function warp(uint256) external;
 }
 
 contract DialRegistryTest {
@@ -21,9 +22,10 @@ contract DialRegistryTest {
     address alice = address(0xA11CE);
     bytes32 attHash = keccak256("att");
     bytes32 addrHash = keccak256("addresses");
+    uint256 constant DSK = 0xD1A15161; // DIAL off-chain signer key (claim vouchers)
 
     function setUp() public {
-        reg = new DialRegistry(owner); // owner = arg, independent of deployer
+        reg = new DialRegistry(owner, vm.addr(DSK)); // owner + DIAL signer, independent of deployer
     }
 
     function _nh(string memory n) internal pure returns (bytes32) {
@@ -77,8 +79,9 @@ contract DialRegistryTest {
     }
 
     function testSignedRevertsWhenSignerUnset() public {
+        DialRegistry r2 = new DialRegistry(owner, address(0)); // signer explicitly unset
         vm.expectRevert(DialRegistry.SignerNotSet.selector);
-        reg.setRecordSigned(_nh("x.dial"), alice, 1, attHash, addrHash, 1, false, hex"00");
+        r2.setRecordSigned(_nh("x.dial"), alice, 1, attHash, addrHash, 1, false, hex"00");
     }
 
     function testSignedWriteWithDialSigner() public {
@@ -152,5 +155,71 @@ contract DialRegistryTest {
         bytes memory sig = _signAddrs(CK, nh, ah, 2, type(uint256).max);
         vm.expectRevert(DialRegistry.NoController.selector);
         reg.setAddressesSigned(nh, ah, 2, type(uint256).max, sig);
+    }
+
+    // ── full self-custody: the consumer claims control + sets addresses, paying gas ──
+    function _signClaim(uint256 pk, bytes32 nh, address claimant, uint256 deadline) internal view returns (bytes memory) {
+        bytes32 digest = reg.hashClaim(nh, claimant, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    // DIAL signs an off-chain voucher; the consumer submits it (from their own wallet)
+    // to become the controller, then sets their own addresses directly. No DIAL tx.
+    function testSelfClaimThenSetAddresses() public {
+        bytes32 nh = _nh("self.dial");
+        address consumer = vm.addr(CK);
+        uint256 dl = type(uint256).max;
+        bytes memory voucher = _signClaim(DSK, nh, consumer, dl);
+        vm.prank(consumer);
+        reg.claim(nh, dl, voucher);
+        require(reg.controllerOf(nh) == consumer, "consumer became controller");
+
+        bytes32 ah = keccak256("my-addr");
+        vm.prank(consumer);
+        reg.setAddresses(nh, ah, 1); // msg.sender IS the proof — no signature
+        require(reg.getRecord(nh).addressesHash == ah, "controller set own addresses");
+        require(reg.seqOf(nh) == 1, "seq advanced");
+    }
+
+    function testClaimRejectsForgedVoucher() public {
+        bytes32 nh = _nh("self.dial");
+        address consumer = vm.addr(CK);
+        bytes memory forged = _signClaim(0xBADBAD, nh, consumer, type(uint256).max); // not the DIAL signer
+        vm.prank(consumer);
+        vm.expectRevert(DialRegistry.ClaimUnauthorized.selector);
+        reg.claim(nh, type(uint256).max, forged);
+    }
+
+    // The voucher is bound to its claimant — a different wallet can't replay it to steal control.
+    function testClaimVoucherBoundToClaimant() public {
+        bytes32 nh = _nh("self.dial");
+        uint256 dl = type(uint256).max;
+        bytes memory voucher = _signClaim(DSK, nh, vm.addr(CK), dl); // DIAL authorised vm.addr(CK)
+        vm.prank(address(0xBEEF)); // someone else submits it
+        vm.expectRevert(DialRegistry.ClaimUnauthorized.selector);
+        reg.claim(nh, dl, voucher);
+    }
+
+    function testClaimExpiredVoucherReverts() public {
+        bytes32 nh = _nh("self.dial");
+        address consumer = vm.addr(CK);
+        vm.warp(1000);
+        bytes memory voucher = _signClaim(DSK, nh, consumer, 999); // deadline in the past
+        vm.prank(consumer);
+        vm.expectRevert(DialRegistry.Expired.selector);
+        reg.claim(nh, 999, voucher);
+    }
+
+    function testSetAddressesRejectsNonController() public {
+        bytes32 nh = _nh("self.dial");
+        address consumer = vm.addr(CK);
+        uint256 dl = type(uint256).max;
+        bytes memory voucher = _signClaim(DSK, nh, consumer, dl); // precompute (it makes a view call → would eat the prank)
+        vm.prank(consumer);
+        reg.claim(nh, dl, voucher);
+        vm.prank(address(0xBEEF)); // not the controller
+        vm.expectRevert(DialRegistry.NotController.selector);
+        reg.setAddresses(nh, keccak256("x"), 1);
     }
 }

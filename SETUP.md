@@ -71,29 +71,33 @@ Frontend is **React via CDN** transpiled by Babel in the browser — **no build 
 
 Two self-contained contracts (no OpenZeppelin), Solidity `^0.8.24`:
 
-- **`DialRegistry`** — the on-chain mirror. `setRecord`/`release` (owner-relayer = "DIAL said so"), per-name `seq` (replay/order), per-name `controllerOf` + `setAddressesSigned` (a consumer's wallet signs EIP-712 to set its own address; DIAL relays but can't forge), and an EIP-712 domain so the same digest is computed on- and off-chain.
-- **`DialName`** — ERC-721. `mint(name, to)` (DIAL is minter); `tokenId = uint256(keccak256(name))`. Minted to a consumer's wallet when they take control; DIAL cannot seize a held token.
+- **`DialRegistry`** — the on-chain mirror + **full self-custody**. `setRecord`/`release` (owner-relayer = "DIAL said so"), per-name `seq` (replay/order), and two consumer paths: `setAddressesSigned` (consumer signs, DIAL relays — gasless) **and** the self-custody path — `claim(nameHash, deadline, sig)` where DIAL signs an off-chain voucher and the **consumer submits it themselves** to become the on-chain controller, then `setAddresses` (controller-direct, no signature). EIP-712 domain so digests match on- and off-chain.
+- **`DialName`** — ERC-721. `mint(name, to)` (DIAL minter, legacy) **and** `claim(name)` — the registry's `controllerOf` self-mints its own token + pays gas. `tokenId = uint256(keccak256(name))`. DIAL cannot seize a held token.
+
+In **full self-custody** the consumer's wallet sends every transaction and pays the gas; DIAL never sends one — it only verifies identity off-chain and signs the claim voucher.
 
 ### Test (needs Foundry)
 ```bash
 export PATH="$HOME/.foundry/bin:$PATH"
-forge test -vv          # 16 tests: DialRegistry (10) + DialName (6)
+forge test -vv          # 23 tests: DialRegistry (15) + DialName (8)
 ```
 
 ### Compile + deploy
 ```bash
-# DialRegistry — pure npm path (solc-js + viem, no Foundry):
-npm run compile:evm                 # → contracts/DialRegistry.abi.json + .bytecode.json
-npm run deploy:evm                  # reads .env, deploys, prints the address
+# Compile BOTH contracts (solc-js, no Foundry), then deploy BOTH (viem):
+npm run compile:evm                 # → contracts/{DialRegistry,DialName}.{abi,bytecode}.json
+npm run deploy:evm                  # deploys DialRegistry(owner, dialSigner) + DialName(minter, registry); prints both addresses
 
-# DialName — deploy with Foundry's forge create:
+# (Alternatively, DialName via Foundry — note the registry constructor arg:)
 forge create contracts/DialName.sol:DialName \
   --rpc-url "$DIAL_EVM_RPC_URL" --private-key "$DEPLOYER_PRIVATE_KEY" \
-  --broadcast --constructor-args <DEPLOYER_ADDRESS>
+  --broadcast --constructor-args <DEPLOYER_ADDRESS> <DIAL_REGISTRY_ADDRESS>
 ```
 
+The deployer EOA is both the contract `owner` and the off-chain **claim-voucher signer** (`dialSigner`, set in the constructor). In full self-custody it sends no per-user transactions.
+
 > A live testnet deployment already exists if you just want to interact:
-> `DialRegistry` `0x0a325377fb1ae438b35da4b1ca139f6e815af5c5`, `DialName` `0x2bea05A6d6F34fcD75F84058c879C8f320502873` (Sepolia). For development, deploy your own.
+> `DialRegistry` `0xfb127e880496f4201c18a1aecea7f0d1b338a495`, `DialName` `0xb33be4f6a992dee9c94bef3c915348286afc97f4` (Sepolia). For development, deploy your own.
 
 ---
 
@@ -126,8 +130,9 @@ The server loads `.env` automatically via `--env-file` (already wired into `pack
 
 - **DIAL-native resolution** — names resolve via DIAL's own registry/resolver; no ENS. Reverse (address→name) is proof-backed (`dialresolver.ts`).
 - **SIWE wallet-link** — a user proves a wallet via Sign-In-With-Ethereum (`/v1/wallet/*`); it binds to a DIAL name they own.
-- **Consumer-controlled addresses** — `/v1/chains/onchain/:name/prepare-addr` returns EIP-712 typed data; the consumer signs in their wallet; `/relay-addr` recovers the signer, makes it the on-chain controller, and relays `setAddressesSigned`. DIAL keeps issuance but can't change the address.
-- **Names as NFTs** — taking control mints the name to the wallet (`DialName`), so it persists in-wallet independent of DIAL's DB.
+- **Full self-custody** — `/v1/chains/onchain/:name/selfcustody-txs` returns the **unsigned** transactions (`claim` → `setAddresses` → NFT `claim`) plus DIAL's off-chain claim voucher; the consumer's wallet sends each one and **pays the gas**; `/selfcustody-confirm` is bookkeeping (logs the write + reflects the address in DIAL's DB). DIAL never sends a transaction.
+- **Consumer-signed (gasless) addresses** — the earlier relay path still exists: `/prepare-addr` → consumer signs → `/relay-addr` recovers the signer and DIAL relays `setAddressesSigned` (DIAL pays gas).
+- **Names as NFTs** — the controller self-mints the name to its wallet (`DialName.claim`), so it persists in-wallet independent of DIAL's DB.
 - **On-chain page** (`/` → "On-chain") — EVM/Canton write log with tx links, a wallet connect/switch bar, and a trustless `getRecord` lookup.
 
 ---
