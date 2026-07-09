@@ -316,7 +316,10 @@ async function selfCustodyOnchain(dispatch, name, value) {
   // DIAL builds the unsigned txs + signs the claim voucher (off-chain, gasless).
   const prep = await dialApi('POST', base + '/selfcustody-txs', { body: { from, value } });
   if (!prep.steps || !prep.steps.length) {
-    dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Already yours on-chain — nothing to do.' } });
+    const msg = prep.nftHeldByOther
+      ? 'This name’s NFT is held by another wallet (' + prep.nftHeldByOther.slice(0, 8) + '…). Connect that wallet to manage it.'
+      : 'Already yours on-chain — nothing to do.';
+    dispatch({ type: 'toast', toast: { kind: prep.nftHeldByOther ? 'info' : 'ok', text: msg } });
     return prep;
   }
 

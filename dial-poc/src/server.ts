@@ -872,14 +872,21 @@ app.post('/v1/chains/onchain/:name/selfcustody-txs', async (req, res) => {
     if (value) {
       steps.push({ op: 'setAddresses', label: 'Set address', value: value.toLowerCase(), ...(await evm.buildSetAddressesTx(name, { 'eip155:1': value.toLowerCase() })) });
     }
-    // 3. Self-mint the name NFT — skip if this wallet already holds it.
+    // 3. Self-mint the name NFT — ONLY when it's genuinely unminted. If another
+    //    wallet already holds it, the contract can't seize it (AlreadyOwned), so
+    //    don't queue a tx that would just revert; flag it for the UI instead.
     const nftOwner = await evm.readNftOwner(name).catch(() => null);
-    if (evm.NFT_ENABLED && (!nftOwner || nftOwner.owner.toLowerCase() !== from.toLowerCase())) {
-      const m = await evm.buildMintTx(name);
-      if (m) steps.push({ op: 'mint', label: 'Mint name NFT', ...m });
+    let nftHeldByOther: string | null = null;
+    if (evm.NFT_ENABLED) {
+      if (!nftOwner) {
+        const m = await evm.buildMintTx(name);
+        if (m) steps.push({ op: 'mint', label: 'Mint name NFT', ...m });
+      } else if (nftOwner.owner.toLowerCase() !== from.toLowerCase()) {
+        nftHeldByOther = nftOwner.owner; // held by a different wallet — can't re-mint
+      }
     }
     const cfg = await evm.config().catch(() => null);
-    res.json({ name, from, steps, explorerBase: cfg ? (cfg as any).explorerBase : null });
+    res.json({ name, from, steps, nftHeldByOther, explorerBase: cfg ? (cfg as any).explorerBase : null });
   } catch (e) {
     if (walletUnavailable(res, e as Error)) return;
     res.status(400).json({ error: (e as Error).message });
