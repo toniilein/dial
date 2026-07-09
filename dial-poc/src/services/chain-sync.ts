@@ -62,14 +62,16 @@ function evmMirror(name: string, op: string) {
   const payload = recordPayload(name);
   if (!payload) return;
   const dial_sig = sign(payload);
-  if (!evm.EVM_ENABLED) { insertRow('evm', name, op, payload, dial_sig, null); return; }
+  if (!evm.EVM_ENABLED) { insertRow('evm', name, op, payload, dial_sig, null); return; } // mock demo mode
+  if (evm.SELF_CUSTODY) return; // full self-custody: DIAL sends no tx — the consumer writes the chain
   const id = insertRow('evm', name, op, payload, dial_sig, 'pending');
   settle(id, evm.enqueueSetRecord(name));
 }
 function evmRelease(name: string) {
   const payload = { name, released_at: Date.now() };
   const dial_sig = sign(payload);
-  if (!evm.EVM_ENABLED) { insertRow('evm', name, 'release', payload, dial_sig, null); return; }
+  if (!evm.EVM_ENABLED) { insertRow('evm', name, 'release', payload, dial_sig, null); return; } // mock demo mode
+  if (evm.SELF_CUSTODY) return; // full self-custody: DIAL sends no tx
   const id = insertRow('evm', name, 'release', payload, dial_sig, 'pending');
   settle(id, evm.enqueueRelease(name));
 }
@@ -88,7 +90,9 @@ export function start() {
       if (!key.startsWith('text.') && !evm.isConsumerControlled(evt.name)) evmMirror(evt.name, 'update');
     }
   });
-  if (evm.EVM_ENABLED) console.log('[chain-sync] EVM mirror ENABLED — writing real transactions.');
+  if (evm.EVM_ENABLED) console.log(evm.SELF_CUSTODY
+    ? '[chain-sync] EVM self-custody — DIAL sends NO tx; the consumer writes the chain + pays gas.'
+    : '[chain-sync] EVM owner-relayer — DIAL writes real transactions (DIAL pays).');
 }
 
 // Log an already-broadcast EVM write (e.g. a consumer-signed setAddressesSigned)

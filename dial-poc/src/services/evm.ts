@@ -20,6 +20,10 @@ import * as registry from './registry.ts';
 import * as resolver from './resolver.ts';
 
 export const EVM_ENABLED = process.env.DIAL_EVM_ENABLED === 'true';
+// Full self-custody: DIAL sends NO EVM transaction — the consumer's own wallet
+// writes the chain (claim → setAddresses → mint) and pays the gas. On by default;
+// set DIAL_EVM_SELF_CUSTODY=false to restore the old owner-relayer mirror (DIAL pays).
+export const SELF_CUSTODY = process.env.DIAL_EVM_SELF_CUSTODY !== 'false';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ABI = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'contracts', 'DialRegistry.abi.json'), 'utf8'));

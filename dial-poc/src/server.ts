@@ -334,9 +334,10 @@ app.post('/v1/wallet/link', async (req, res) => {
   try {
     const proven = await wallet.link(u.id, u.owner_address, message, signature, siweDomain(req));
     const updated = authSvc.setWallet(u.id, proven);
-    // Decentralisation bootstrap: hand on-chain address-control of the bound name
-    // to the proven consumer wallet (fire-and-forget; the relayed tx settles async).
-    if (evm.EVM_ENABLED && proven.name) {
+    // Full self-custody: DIAL does NOT touch the chain on link — the consumer takes
+    // on-chain control themselves (the gas-paid `claim`) via the name's on-chain
+    // buttons. Only the legacy owner-relayer mode (SELF_CUSTODY=false) bootstraps here.
+    if (evm.EVM_ENABLED && !evm.SELF_CUSTODY && proven.name) {
       evm.enqueueSetController(proven.name, proven.address)
         .catch(e => console.error('[evm] setController failed:', (e as Error).message));
     }
