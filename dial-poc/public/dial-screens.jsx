@@ -2037,6 +2037,65 @@ function EvmEditor({ name }) {
   );
 }
 
+// Standalone: mint the name as an NFT into the wallet, paid by the consumer. (The
+// "Set on-chain" flow mints too, as its last step — this is the direct path.)
+function NameNftCard({ name }) {
+  const { state, dispatch } = useDial();
+  const [nft, setNft] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [minting, setMinting] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const walletLinked = !!(state.identity[state.org] && state.identity[state.org].wallet);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const r = await dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name));
+      setNft(r && r.nft && r.nft.owner ? { ...r.nft, explorerBase: r.explorerBase } : null);
+    } catch {} finally { setLoading(false); }
+  }, [name.name]);
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const mint = async () => {
+    setErr(null); setMinting(true);
+    try {
+      await selfCustodyOnchain(dispatch, name.name, ''); // claim (if needed) + mint; no address change
+      await refresh();
+    } catch (e) { setErr(e.message || String(e)); }
+    finally { setMinting(false); }
+  };
+
+  if (loading) return null;
+  const minted = !!(nft && nft.owner);
+  return (
+    <div className="dial-card" style={{ padding: 14, marginTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: 'linear-gradient(135deg,#6b46ff,#2b6cff)', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>NFT</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>DIAL name NFT</div>
+          <div className="dial-muted" style={{ fontSize: 11 }}>
+            {minted
+              ? 'Minted to your wallet — this name is an ERC-721 you own on-chain.'
+              : 'Mint this name as an ERC-721 into your wallet. You pay the gas.'}
+          </div>
+        </div>
+        {minted ? (
+          <a className="dial-btn sm" href={nft.explorerBase + '/nft/' + nft.contract + '/' + nft.tokenId} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+            View NFT <External size={11} />
+          </a>
+        ) : walletLinked ? (
+          <button className="dial-btn primary sm" onClick={mint} disabled={minting}>
+            {minting ? <><Spinner size={12} stroke="#fff" /> Minting…</> : <><Shield size={12} stroke="#fff" /> Mint NFT (you pay gas)</>}
+          </button>
+        ) : (
+          <span className="dial-muted" style={{ fontSize: 11 }}>Link your wallet to mint</span>
+        )}
+      </div>
+      {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 8 }}>{err}</div>}
+    </div>
+  );
+}
+
 function NameRecords({ name }) {
   const { state, dispatch } = useDial();
   const [records, setRecords] = React.useState(name.records);
@@ -2108,6 +2167,7 @@ function NameRecords({ name }) {
         </div>
         <div style={{ marginTop: 14 }}>
           <EvmEditor name={name} />
+          <NameNftCard name={name} />
         </div>
       </div>
 

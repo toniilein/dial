@@ -338,7 +338,12 @@ async function selfCustodyOnchain(dispatch, name, value) {
     await waitForReceipt(eth, txHash);
     await dialApi('POST', base + '/selfcustody-confirm', { body: { op: step.op, txHash, value: step.value } });
   }
-  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Done — you own it on-chain (control + address + NFT), paid from your wallet.' } });
+  const did = prep.steps.map(s => s.op);
+  const parts = [];
+  if (did.includes('claim')) parts.push('control');
+  if (did.includes('setAddresses')) parts.push('address');
+  if (did.includes('mint')) parts.push('NFT');
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Done — ' + parts.join(' + ') + ' now yours on-chain, paid from your wallet.' } });
   return prep;
 }
 
