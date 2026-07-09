@@ -1937,7 +1937,6 @@ function EvmEditor({ name }) {
   }, [name.name]);
 
   const valid = isEvmAddress(value);
-  const walletLinked = !!(state.identity[state.org] && state.identity[state.org].wallet);
   const nftLink = nft && nft.explorerBase ? (
     <a href={nft.explorerBase + '/nft/' + nft.contract + '/' + nft.tokenId} target="_blank" rel="noreferrer"
       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--dial-accent)', marginTop: 8, textDecoration: 'none' }}>
@@ -2018,20 +2017,16 @@ function EvmEditor({ name }) {
       {value && !valid && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>Expected 0x followed by 40 hex characters.</div>}
       {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>{err}</div>}
       <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>
-        {walletLinked
-          ? <>Full self-custody: <strong>your</strong> wallet sends each transaction and pays the gas — claim control, set the address, mint the name NFT. DIAL only signs an off-chain voucher and can't change it.</>
-          : <>Saved off-chain by DIAL. Link your Ethereum wallet to take this on-chain yourself.</>}
+        Full self-custody: <strong>your</strong> wallet sends each transaction and pays the gas — claim control, set the address, mint the name NFT. DIAL only signs an off-chain voucher and can't change it. Clicking connects your wallet.
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         <button className="dial-btn sm" onClick={() => { setOpen(false); setValue(current); setErr(null); }} disabled={saving}>Cancel</button>
         <button className="dial-btn sm" onClick={save} disabled={!valid || saving}>
           {saving ? <><Spinner size={12} /> Saving</> : <>{current ? 'Update' : 'Add'} (DIAL)</>}
         </button>
-        {walletLinked && (
-          <button className="dial-btn primary sm" onClick={saveSigned} disabled={!valid || saving}>
-            {saving ? <><Spinner size={12} stroke="#fff" /> On-chain…</> : <><Shield size={12} stroke="#fff" /> Set on-chain (you pay gas)</>}
-          </button>
-        )}
+        <button className="dial-btn primary sm" onClick={saveSigned} disabled={!valid || saving}>
+          {saving ? <><Spinner size={12} stroke="#fff" /> On-chain…</> : <><Shield size={12} stroke="#fff" /> Set on-chain (you pay gas)</>}
+        </button>
       </div>
     </div>
   );
@@ -2045,7 +2040,6 @@ function NameNftCard({ name }) {
   const [loading, setLoading] = React.useState(true);
   const [minting, setMinting] = React.useState(false);
   const [err, setErr] = React.useState(null);
-  const walletLinked = !!(state.identity[state.org] && state.identity[state.org].wallet);
 
   const refresh = React.useCallback(async () => {
     try {
@@ -2083,12 +2077,10 @@ function NameNftCard({ name }) {
           <a className="dial-btn sm" href={nft.explorerBase + '/nft/' + nft.contract + '/' + nft.tokenId} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
             View NFT <External size={11} />
           </a>
-        ) : walletLinked ? (
+        ) : (
           <button className="dial-btn primary sm" onClick={mint} disabled={minting}>
             {minting ? <><Spinner size={12} stroke="#fff" /> Minting…</> : <><Shield size={12} stroke="#fff" /> Mint NFT (you pay gas)</>}
           </button>
-        ) : (
-          <span className="dial-muted" style={{ fontSize: 11 }}>Link your wallet to mint</span>
         )}
       </div>
       {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 8 }}>{err}</div>}
