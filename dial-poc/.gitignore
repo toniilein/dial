@@ -1,5 +1,5 @@
 node_modules/
-dial.db
+# dial.db is a committed pre-seeded snapshot; only the transient sidecars are ignored.
 dial.db-journal
 dial.db-shm
 dial.db-wal

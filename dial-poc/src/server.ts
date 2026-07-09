@@ -40,16 +40,18 @@ function seedIfEmpty() {
     { line1: 'Friedrichshain 47', city: '10243 Berlin', country: 'Germany' });
   authSvc.setVerified(davidUser.id, true); // David is identity-verified for the demo
 
-  // David — consumer with a .dial name, a receptionist, a mocked EVM address,
-  // and several messages already waiting in his inbox. (Account address kept
-  // as the opaque internal id 0xalice123.)
+  // David — consumer with a .dial name, a receptionist, his real self-custodied
+  // EVM address, and several messages already waiting in his inbox. (Account
+  // address kept as the opaque internal id 0xalice123.)
   {
     const att = idh.verify('0xalice123', 'consumer');
     registrar.register({ name: 'david.dial', owner_address: '0xalice123', duration_years: 1, attestation_hash: att.hash });
     resolver.setAddr('0xalice123', 'david.dial', 'canton:omnibus', canton.partyFor('david.dial'));
-    // Mocked EVM address (proof-of-control is mocked) so the address page
-    // shows Canton + EVM out of the box.
-    resolver.setAddr('0xalice123', 'david.dial', 'eip155:1', '0xA1c3553aF1cE0000000000000000000000A11ce5');
+    // Real self-custodied EVM address — the wallet that claimed david.dial on
+    // Sepolia (controllerOf + name-NFT holder). Kept lowercase so the off-chain
+    // addr map hashes to the on-chain addressesHash (0x4d6e…): the On-chain page
+    // verifies clean against the deployed DialRegistry instead of showing a mock.
+    resolver.setAddr('0xalice123', 'david.dial', 'eip155:1', '0xff2474a02f5d5d009ee00406463aeb6f2ca8b33d');
 
     receptionist.upsertConfig('0xalice123', 'david.dial', {
       owner_name: 'David Palmer',

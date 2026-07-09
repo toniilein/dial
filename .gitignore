@@ -1,8 +1,9 @@
 # Dependencies
 node_modules/
 
-# SQLite runtime state (regenerated from the seed on startup)
-dial.db
+# SQLite runtime state — dial.db itself is a committed pre-seeded snapshot
+# (delete it to fall back to code-seeding on boot); only the transient
+# WAL/journal sidecars are ignored.
 dial.db-journal
 dial.db-shm
 dial.db-wal

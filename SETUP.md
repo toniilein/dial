@@ -28,7 +28,7 @@ npm install
 npm start            # → http://localhost:3000
 ```
 
-First boot seeds demo data (David / Acme / Alice) into a local `dial.db` (SQLite, gitignored, regenerated if deleted). `npm run dev` is the same with file-watch reload.
+The repo ships a **pre-seeded `dial.db`** (David / Acme / Alice + their profiles and inboxes), so the app starts populated. Delete it and the app regenerates the same demo data from code on first boot (`seedIfEmpty()`); its WAL/journal sidecars stay gitignored. `npm run dev` is the same with file-watch reload.
 
 To run with the **real EVM mirror**, see §5.
 
@@ -126,7 +126,49 @@ The server loads `.env` automatically via `--env-file` (already wired into `pack
 
 ---
 
-## 6. Key flows
+## 6. Deploy to Replit (+ Google / Apple sign-in)
+
+The repo is Replit-ready: a root `.replit` runs the app from `dial-poc/`, the server binds `0.0.0.0` + reads `PORT`, and it ships a **pre-seeded `dial.db`** so it starts populated (nothing to provision). On Autoscale the filesystem is ephemeral, so live writes don't persist — every cold start returns to this snapshot.
+
+**Import:** Replit → *Create → Import from GitHub* → `https://github.com/toniilein/dial`. Press **Run** for the dev webview; **Deploy → Autoscale** (preconfigured) for a stable `https://<name>.replit.app`. Update later via the Git pane → *Pull*.
+
+Set all values below in the Replit **Secrets** pane — **never** in `.replit`, which is committed.
+
+### Sign in with Google / Apple
+
+The OAuth is **already implemented** — a real auth-code flow in `src/services/oauth.ts` + the `/v1/auth/{google,apple}/{start,callback}` routes. It's inert until its env vars are set, and the buttons read `GET /v1/auth/providers` (`{google, apple}`) to show "· setup needed". Enabling it is **pure configuration — do not change the auth code.**
+
+> ⚠️ **Register the _deployed_ URL, not the dev URL.** Google/Apple require an exact redirect match, and Replit's dev-workspace URL is unstable. Deploy first, then register `https://<name>.replit.app` (below written as `YOUR_URL`).
+
+**Redirect URIs** — must match exactly (`https`, no trailing slash):
+- Google: `https://YOUR_URL/v1/auth/google/callback`
+- Apple:  `https://YOUR_URL/v1/auth/apple/callback`
+
+**Google** — Cloud Console → Credentials → *Create OAuth client ID* → **Web application**: add the redirect URI above and JavaScript origin `https://YOUR_URL`; copy the Client ID + secret.
+
+**Apple** (needs a paid Developer account) — create a **Services ID** (this becomes `APPLE_CLIENT_ID`), enable *Sign in with Apple*, set the domain + Return URL above; create a **key** (`.p8` → `APPLE_PRIVATE_KEY`, plus its `APPLE_KEY_ID`); note your `APPLE_TEAM_ID`. Domain verification: put the `apple-developer-domain-association.txt` contents in `APPLE_DOMAIN_ASSOCIATION` — the app serves it at `/.well-known/apple-developer-domain-association.txt`.
+
+| Secret | For | Value |
+|---|---|---|
+| `SESSION_SECRET` | **both** — signs sessions **and** the OAuth CSRF `state` (must be set + stable) | 32-byte hex, e.g. `openssl rand -hex 32` |
+| `OAUTH_BASE_URL` | **both** — pins the redirect base (removes host-header ambiguity) | `https://YOUR_URL` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google | from Cloud Console |
+| `APPLE_CLIENT_ID` / `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY` | Apple | from the Developer portal (`.p8` may be raw PEM or base64) |
+| `APPLE_DOMAIN_ASSOCIATION` | Apple | the `.txt` file's contents |
+
+After saving Secrets, redeploy. **Verify:** `GET /v1/auth/providers` returns `true` for each configured provider — that's the ground truth. `false` means a Secret is missing, **not** a code bug. `trust proxy` is already on, so `https` is detected correctly behind Replit's proxy.
+
+### Guardrail for Replit's AI Agent
+
+If you drive the import with Replit's Agent, tell it **not** to "fix" the working auth:
+
+> This repo already has fully-working Google + Apple OAuth (`dial-poc/src/services/oauth.ts` + the `/v1/auth/*` routes). Do NOT modify, refactor, or replace any auth code, routes, or session logic — it works as-is. Auth is enabled by **configuration only**: add the Secrets (`SESSION_SECRET`, `OAUTH_BASE_URL`, `GOOGLE_CLIENT_*`, and the `APPLE_*` vars) and redeploy, then verify `GET /v1/auth/providers` returns `{"google":true,"apple":true}`. Don't touch anything else.
+
+> **Note:** leaving the code intact keeps auth *capable*; it only goes live once the Secrets are set **and** the redirect URLs are registered in the Google/Apple consoles.
+
+---
+
+## 7. Key flows
 
 - **DIAL-native resolution** — names resolve via DIAL's own registry/resolver; no ENS. Reverse (address→name) is proof-backed (`dialresolver.ts`).
 - **SIWE wallet-link** — a user proves a wallet via Sign-In-With-Ethereum (`/v1/wallet/*`); it binds to a DIAL name they own.
@@ -137,7 +179,7 @@ The server loads `.env` automatically via `--env-file` (already wired into `pack
 
 ---
 
-## 7. Troubleshooting (gotchas we actually hit)
+## 8. Troubleshooting (gotchas we actually hit)
 
 | Symptom | Cause / fix |
 |---|---|
@@ -146,10 +188,13 @@ The server loads `.env` automatically via `--env-file` (already wired into `pack
 | `setAddressesSigned reverted: BadSignature()` | Signed with a different account, or `EIP712Domain` missing. Both fixed — the server recovers the signer and makes it the controller; reload and retry. |
 | NFT not visible in MetaMask | Testnets don't auto-detect NFTs. **Import NFT** (contract + tokenId), enable *Show test networks*, or check Sepolia Etherscan / testnets.opensea.io. |
 | Linked wallet / address gone after re-login | The local `dial.db` was reset (it's ephemeral on Replit, and reseeds when empty). On-chain data persists; the name-NFT persists in your wallet. |
+| Google/Apple button still says "· setup needed" | A Secret is missing — `GET /v1/auth/providers` returns `false`. Set the provider's env vars (§6) and redeploy; the code is fine. |
+| OAuth `redirect_uri_mismatch` / `invalid_client` | The URL registered in Google/Apple doesn't **exactly** match `https://YOUR_URL/v1/auth/<provider>/callback`. Fix scheme/host/path (no trailing slash); register the **deployed** URL, and set `OAUTH_BASE_URL` to match. |
+| Logged out on every restart, or `invalid state` on callback | `SESSION_SECRET` unset or changing between boots — it signs both sessions and the OAuth `state`. Set a fixed value in Secrets. |
 
 ---
 
-## 8. Caveats (it's a PoC)
+## 9. Caveats (it's a PoC)
 
 - **Trust model:** the EVM mirror is **owner-relayer** ("trust DIAL") in v1 — records are an ordered, tamper-evident commitment, not yet independently verifiable. A dormant Layer-2 signed-records path exists; consumer *addresses* are already self-sovereign (signature-gated).
 - **Signing is symmetric HMAC** for the Canton mirror — not externally verifiable until an asymmetric key is added.
