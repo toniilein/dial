@@ -1,12 +1,75 @@
-import Database from 'better-sqlite3';
+import type BetterSqlite3Database from 'better-sqlite3';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DIAL_DB ?? path.join(__dirname, '..', 'dial.db');
 
-export const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+// Shared DB across environments (local dev + Replit): when TURSO_DATABASE_URL
+// is set, `libsql` keeps a local embedded replica at DIAL_DB — reads stay
+// local/synchronous (same better-sqlite3 API), writes are forwarded to the
+// shared Turso primary and replicate back to every instance within
+// TURSO_SYNC_SECONDS. Without the env var this is the plain local SQLite file.
+const TURSO_URL = process.env.TURSO_AUTH_TOKEN ? process.env.TURSO_DATABASE_URL : undefined;
+if (process.env.TURSO_DATABASE_URL && !TURSO_URL) {
+  console.warn('[db] TURSO_DATABASE_URL is set but TURSO_AUTH_TOKEN is missing — falling back to the local file.');
+}
+
+// The embedded replica lives in its own file (unless DIAL_DB overrides it):
+// it is materialized from the Turso primary and must not collide with a
+// pre-existing standalone dial.db.
+const REPLICA_PATH = process.env.DIAL_DB ?? path.join(__dirname, '..', 'dial-replica.db');
+
+export const db: BetterSqlite3Database.Database = TURSO_URL
+  ? new ((await import('libsql')).default)(REPLICA_PATH, {
+      syncUrl: TURSO_URL,
+      authToken: process.env.TURSO_AUTH_TOKEN,
+      syncPeriod: Number(process.env.TURSO_SYNC_SECONDS ?? '5'),
+    }) as unknown as BetterSqlite3Database.Database
+  : new ((await import('better-sqlite3')).default)(DB_PATH);
+
+if (TURSO_URL) {
+  (db as any).sync(); // pull the shared state before the schema/migrations run
+
+  // Two libsql better-sqlite3-compat quirks, fixed centrally:
+  //  1. NAMED parameters bind as NULL on writes forwarded to the remote
+  //     primary (only positional `?` survives the Hrana round-trip), so
+  //     rewrite `@name` placeholders to positional at prepare time.
+  //  2. Replica reads report keyword column names UPPERCASED (`key` → `KEY`)
+  //     and append a `_metadata` field, so normalize returned rows (all our
+  //     schema columns are lowercase).
+  const fixRow = (row: unknown) => {
+    if (!row || typeof row !== 'object') return row;
+    const r = row as Record<string, unknown>;
+    delete r._metadata;
+    for (const k of Object.keys(r)) {
+      const lower = k.toLowerCase();
+      if (k !== lower && !(lower in r)) { r[lower] = r[k]; delete r[k]; }
+    }
+    return r;
+  };
+  const rawPrepare = db.prepare.bind(db);
+  (db as any).prepare = (sql: string) => {
+    const names: string[] = [];
+    const positional = sql.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_, n: string) => { names.push(n); return '?'; });
+    const stmt = rawPrepare(positional);
+    const toArgs = (args: unknown[]) =>
+      names.length && args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])
+        ? [names.map(n => (args[0] as Record<string, unknown>)[n])]
+        : args;
+    const rawGet = (stmt as any).get.bind(stmt);
+    const rawAll = (stmt as any).all.bind(stmt);
+    const rawRun = (stmt as any).run.bind(stmt);
+    (stmt as any).get = (...args: unknown[]) => fixRow(rawGet(...toArgs(args)));
+    (stmt as any).all = (...args: unknown[]) => rawAll(...toArgs(args)).map(fixRow);
+    (stmt as any).run = (...args: unknown[]) => rawRun(...toArgs(args));
+    return stmt;
+  };
+
+  console.log(`[db] shared mode — embedded replica of ${TURSO_URL} (sync every ${process.env.TURSO_SYNC_SECONDS ?? '5'}s)`);
+} else {
+  db.pragma('journal_mode = WAL');
+}
 db.pragma('foreign_keys = ON');
 
 // Source of truth — DIAL Postgres in the architecture doc, SQLite here.
@@ -206,3 +269,8 @@ ensureColumn('users', 'wallet_linked_at', 'wallet_linked_at INTEGER');
 // (pending → confirmed | reverted | failed). Null for mock/Canton rows.
 ensureColumn('chain_writes', 'tx_hash', 'tx_hash TEXT');
 ensureColumn('chain_writes', 'tx_status', 'tx_status TEXT');
+
+// Public-page visibility. 1 = anyone with the link can view the name's public
+// page; 0 = private (only the owner can load it). Defaults to public so every
+// existing name keeps its shareable page.
+ensureColumn('namespaces', 'page_public', 'page_public INTEGER NOT NULL DEFAULT 1');

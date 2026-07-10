@@ -57,6 +57,36 @@ as Replit **Secrets** to enable the rest:
 Until Google/Apple secrets are set, those buttons show **"setup needed"** and
 are disabled; email/password and demo accounts still work.
 
+## Shared database (sync local dev ↔ Replit)
+
+By default each environment has its own local `dial.db`, so data diverges
+between your machine and Replit. To share one database, create a
+[Turso](https://turso.tech) database and set these in **both** environments:
+
+| Secret | Notes |
+|--------|-------|
+| `TURSO_DATABASE_URL` | `libsql://<db-name>-<org>.turso.io` — from `turso db show <name> --url`. |
+| `TURSO_AUTH_TOKEN` | From `turso db tokens create <name>`. |
+| `TURSO_SYNC_SECONDS` | Optional; how often remote changes replicate in (default `5`). |
+
+When set, `dial.db` becomes an **embedded replica**: reads stay local, writes
+go to the shared Turso primary and appear on every other instance within
+`TURSO_SYNC_SECONDS`. Unset = plain local SQLite, exactly as before.
+
+To seed Turso from an existing `dial.db`, checkpoint it first, then create the
+database from the file:
+
+```bash
+sqlite3 dial.db "PRAGMA wal_checkpoint(TRUNCATE);"
+turso db create dial --from-file dial.db
+```
+
+Two rules when sharing: only **one** environment may run the EVM owner-relayer
+mode (`DIAL_EVM_SELF_CUSTODY=false`) — two relayers sharing
+`DEPLOYER_PRIVATE_KEY` race on the account nonce (the default self-custody
+mode is safe everywhere); and both environments should point at the **same**
+`DIAL_REGISTRY_ADDRESS`, since the shared DB assumes one chain state.
+
 **Applied hardening:** sessions fail-closed without `SESSION_SECRET` in
 production; Bearer-only auth (no spoofable header); HMAC session tokens with
 domain separation; constant-time login; per-IP login/register throttling;

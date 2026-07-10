@@ -3,6 +3,9 @@ node_modules/
 dial.db-journal
 dial.db-shm
 dial.db-wal
+
+# Turso embedded replica (shared-DB mode) — materialized from the remote primary
+dial-replica.db*
 *.log
 .DS_Store
 
