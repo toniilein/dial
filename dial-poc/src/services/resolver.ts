@@ -15,9 +15,11 @@ export function getAll(name: string): ResolverRecord[] {
 }
 
 export function getAddresses(name: string): Record<string, string> {
-  const rows = db.prepare(`SELECT key, value FROM resolver_records WHERE name = ? AND key LIKE 'addr.%'`).all(name) as { key: string; value: string }[];
+  // Alias `key` → `k` so the returned property name is stable regardless of how
+  // the driver reports the column case (the libsql replica uppercases `key`).
+  const rows = db.prepare(`SELECT key AS k, value FROM resolver_records WHERE name = ? AND key LIKE 'addr.%'`).all(name) as { k: string; value: string }[];
   const out: Record<string, string> = {};
-  for (const r of rows) out[r.key.slice('addr.'.length)] = r.value;
+  for (const r of rows) out[r.k.slice('addr.'.length)] = r.value;
   return out;
 }
 
@@ -35,9 +37,9 @@ export function text(name: string, key: string): string | null {
 // social links (phone / whatsapp / telegram / x / linkedin / …) and the
 // public address page.
 export function getTexts(name: string): Record<string, string> {
-  const rows = db.prepare(`SELECT key, value FROM resolver_records WHERE name = ? AND key LIKE 'text.%'`).all(name) as { key: string; value: string }[];
+  const rows = db.prepare(`SELECT key AS k, value FROM resolver_records WHERE name = ? AND key LIKE 'text.%'`).all(name) as { k: string; value: string }[];
   const out: Record<string, string> = {};
-  for (const r of rows) out[r.key.slice('text.'.length)] = r.value;
+  for (const r of rows) out[r.k.slice('text.'.length)] = r.value;
   return out;
 }
 
