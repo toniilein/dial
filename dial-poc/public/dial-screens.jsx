@@ -2651,27 +2651,29 @@ function DomainNames({ domain }) {
         </div>
       ) : (
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.4fr 90px', padding: '10px 16px',
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 150px', padding: '10px 16px',
             borderBottom: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface-2)',
             fontSize: 11, letterSpacing: '0.04em', color: 'var(--dial-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
             <div>Name</div><div>Owner</div><div>Canton id</div><div></div>
           </div>
           {shown.map((s, i) => (
-            <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.4fr 90px',
+            <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 150px',
               padding: '12px 16px', alignItems: 'center', fontSize: 13,
               borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-              <div className="dial-mono" style={{ fontWeight: 600 }}>{s.name}</div>
+              {/* Clicking the name opens its edit (detail) page. */}
+              <button className="dial-mono" title="Open name"
+                onClick={() => dispatch({ type: 'route', route: { screen: 'name', name: s.name } })}
+                style={{ fontWeight: 600, border: 0, background: 'transparent', color: 'var(--dial-text)', padding: 0,
+                  textAlign: 'left', cursor: 'pointer', fontSize: 13, textDecoration: 'underline',
+                  textDecorationColor: 'var(--dial-border)', textUnderlineOffset: 3 }}>
+                {s.name}
+              </button>
               <div className="dial-muted" style={{ fontSize: 12 }}>{s.owner || 'unassigned'}</div>
-              {s.records['canton:omnibus']
-                ? <code className="dial-mono" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.records['canton:omnibus']}</code>
-                : <button className="dial-btn sm" style={{ justifySelf: 'start' }}
-                    onClick={() => dispatch({ type: 'modal', modal: { kind: 'associate-name', name: s.name } })}>
-                    <Chain size={12} /> Associate
-                  </button>}
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                <button className="dial-iconbtn" title="Edit"
-                  onClick={() => dispatch({ type: 'route', route: { screen: 'name', name: s.name } })}>
-                  <Edit size={14} />
+              <code className="dial-mono" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.records['canton:omnibus'] || '—'}</code>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                <button className="dial-btn sm"
+                  onClick={() => dispatch({ type: 'modal', modal: { kind: 'associate-name', name: s.name } })}>
+                  <Chain size={12} /> Associate
                 </button>
                 <button className="dial-iconbtn" title="Release"
                   onClick={() => releaseDomainName(state, dispatch, domain.domain, s.name)}>
