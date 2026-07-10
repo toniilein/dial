@@ -530,7 +530,7 @@ app.post('/v1/registrar/register', (req, res) => {
 });
 
 // 1.6 / 2.6 — release (owner returns the name to the available pool)
-app.post('/v1/registrar/release', (req, res) => {
+app.post('/v1/registrar/release', async (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
   const { name } = req.body ?? {};
@@ -541,6 +541,18 @@ app.post('/v1/registrar/release', (req, res) => {
     if (!existing) return res.status(404).json({ error: 'not found' });
     if (existing.owner_address.toLowerCase() !== c) {
       return res.status(403).json({ error: 'not owner' });
+    }
+    // Keep the DB and chain consistent: a self-custodied name that's minted
+    // on-chain can't be un-minted (no burn), so freeing it in the DB would
+    // advertise a name nobody can actually claim on-chain. Refuse the release
+    // while the NFT exists. (readNftOwner returns null when the mirror is off,
+    // so this is a no-op unless the EVM/NFT mirror is live.)
+    const nft = await evm.readNftOwner(parsed.name).catch(() => null);
+    if (nft) {
+      return res.status(409).json({
+        error: 'This name is held as an NFT on-chain and can’t be released while minted. Transfer or keep the token; the on-chain name stays yours.',
+        nft,
+      });
     }
     const released = registrar.release(parsed.name);
     res.json({ released });
