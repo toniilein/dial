@@ -1760,6 +1760,7 @@ function DialModals() {
   if (state.modal.kind === 'release')         return <ReleaseModal />;
   if (state.modal.kind === 'register-domain') return <RegisterDomainFlow />;
   if (state.modal.kind === 'issue-name')      return <IssueNameModal />;
+  if (state.modal.kind === 'associate-name')  return <AssociateNameModal />;
   if (state.modal.kind === 'release-domain')  return <ReleaseDomainModal />;
   if (state.modal.kind === 'checkout')        return <CheckoutFlow />;
   return null;

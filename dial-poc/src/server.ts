@@ -456,7 +456,10 @@ app.post('/v1/registrar/register', (req, res) => {
   let issued;
   try {
     const a = registrar.available(name);
-    if (!a.available) return res.status(409).json({ error: 'unavailable', detail: a });
+    if (!a.available) {
+      const why = a.reason === 'taken' ? 'name already taken' : `invalid name (${a.reason})`;
+      return res.status(409).json({ error: why, detail: a });
+    }
     // Verified consumers (with a valid Pairpoint attestation) get the discount.
     const verified = !!attestation_hash && !!idh.get(attestation_hash);
     const q = billing.quote(a.label, a.tld, duration_years, { verified });

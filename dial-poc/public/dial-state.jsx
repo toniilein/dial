@@ -392,15 +392,22 @@ function dialDomainPrice(label) {
   return       { tier: 'Corporate Domain · Standard',       usdc: 2400,  perYear: true };
 }
 
-function dialNormalise(input) {
+// `opts.corporate` = validating a name issued under a corporate domain (.acme),
+// whose owner controls the whole namespace. Those allow short 2-char department
+// codes (hr, it) and the fuller 63-char label length; the public .dial search
+// keeps the stricter 3–32 range.
+function dialNormalise(input, opts) {
+  const corporate = !!(opts && opts.corporate);
+  const minLen = corporate ? 1 : 3;
+  const maxLen = corporate ? 63 : 32;
   if (!input) return { label: '', valid: false, reason: 'empty' };
   let s = input.trim().toLowerCase();
   if (s.endsWith('.dial')) s = s.slice(0, -5);
   if (s.startsWith('.')) s = s.slice(1);
   if (!/^[a-z0-9-]+$/.test(s)) return { label: s, valid: false, reason: 'Only a-z, 0-9, and dash are allowed.' };
   if (s.startsWith('-') || s.endsWith('-')) return { label: s, valid: false, reason: 'Cannot start or end with a dash.' };
-  if (s.length < 3) return { label: s, valid: false, reason: 'Names must be at least 3 characters.' };
-  if (s.length > 32) return { label: s, valid: false, reason: 'Names must be at most 32 characters.' };
+  if (s.length < minLen) return { label: s, valid: false, reason: corporate ? 'Enter a name.' : 'Names must be at least 3 characters.' };
+  if (s.length > maxLen) return { label: s, valid: false, reason: 'Names must be at most ' + maxLen + ' characters.' };
   return { label: s, valid: true };
 }
 
@@ -772,7 +779,7 @@ async function registerDomain(state, dispatch, label, durationYears, records) {
   dispatch({ type: 'route', route: { screen: 'domain', domain: '.' + label } });
 }
 
-async function issueNameUnderDomain(state, dispatch, parentDomain, label, owner) {
+async function issueNameUnderDomain(state, dispatch, parentDomain, label, owner, opts) {
   // parentDomain comes in as e.g. ".acme"
   const tld = parentDomain.replace(/^\./, '');
   const org = state.org;
@@ -785,7 +792,9 @@ async function issueNameUnderDomain(state, dispatch, parentDomain, label, owner)
     body: { name: fullName, duration_years: 1, attestation_hash: attHash },
   });
   await loadOrg(state, dispatch, org);
-  dispatch({ type: 'modal', modal: null });
+  // The caller can keep the modal open to offer an on-chain association step
+  // (Canton id / Ethereum wallet) right after the name is created.
+  if (!(opts && opts.keepOpen)) dispatch({ type: 'modal', modal: null });
   dispatch({ type: 'toast', toast: { kind: 'ok', text: fullName + ' issued.' } });
   return r;
 }

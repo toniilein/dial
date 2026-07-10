@@ -27,6 +27,9 @@ const RESERVED_LABELS = new Set([
 const PROFANITY = new Set(['shit', 'fuck', 'cunt']);
 
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
+// Corporate-domain labels are laxer: the enterprise owns the whole namespace,
+// so short 2-char department codes (hr, it, qa) are allowed too.
+const CORP_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export type ParsedName = { label: string; tld: string; name: string };
 
@@ -52,12 +55,17 @@ export type ValidityReason =
   | 'reserved'
   | 'profanity';
 
-export function validityIssue(label: string): ValidityReason | null {
-  if (label.length < 3 || label.length > 63) return 'label-length';
-  if (!LABEL_RE.test(label)) return 'label-syntax';
-  if (RESERVED_LABELS.has(label)) return 'reserved';
+// `corporate` = the label is being issued under a corporate domain (.acme),
+// whose owner controls the entire namespace. Those names skip the public-.dial
+// protections — the reserved/brand blocklist and the 3-char minimum exist to
+// stop impersonation and squatting on the shared TLDs, neither of which applies
+// inside a namespace one enterprise already owns. Structural syntax and the
+// max length still apply so every name is a valid, resolvable label.
+export function validityIssue(label: string, corporate = false): ValidityReason | null {
+  if (label.length < (corporate ? 1 : 3) || label.length > 63) return 'label-length';
+  if (!(corporate ? CORP_LABEL_RE : LABEL_RE).test(label)) return 'label-syntax';
+  if (!corporate && RESERVED_LABELS.has(label)) return 'reserved';
   if (PROFANITY.has(label)) return 'profanity';
-  // Cheap homoglyph guard: reject names that contain only digits/hyphens.
   return null;
 }
 
@@ -73,7 +81,8 @@ export type AvailabilityResult = {
 
 export function available(input: string): AvailabilityResult {
   const { label, tld, name } = parse(input);
-  const v = validityIssue(label);
+  // A non-Phase-0 tld that parsed is an existing corporate domain.
+  const v = validityIssue(label, !PHASE0_TLDS.has(tld));
   if (v) {
     return { name, label, tld, available: false, reason: v };
   }
@@ -99,7 +108,7 @@ export type RegisterArgs = {
 
 export function register(args: RegisterArgs) {
   const { label, tld, name } = parse(args.name);
-  const v = validityIssue(label);
+  const v = validityIssue(label, !PHASE0_TLDS.has(tld));
   if (v) throw new Error(`invalid label: ${v}`);
   if (!registry.isAvailable(name)) throw new Error('name not available');
 

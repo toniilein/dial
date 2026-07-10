@@ -3,7 +3,7 @@
 
 const { ArrowR: _DAR, ArrowL: _DAL, Check: _DCK, CheckCircle: _DCC, X: _DX,
   Plus: _DP, Shield: _DSH, Spinner: _DSP, Building: _DB, Dollar: _DD,
-  Calendar: _DCA, Hash: _DH, Search: _DSE } = window.DialIcons;
+  Calendar: _DCA, Hash: _DH, Search: _DSE, Chain: _DCH, Wallet: _DWA, Copy: _DCO } = window.DialIcons;
 
 // Shared modal primitives live in dial-modals.jsx, re-exposed via window.
 const { DialModalFrame, RegStepIdentity, ChainField, Line } = window;
@@ -243,10 +243,14 @@ function IssueNameModal() {
   const [issuing, setIssuing] = React.useState(false);
   const [error, setError] = React.useState(null);
 
-  const norm = dialNormalise(label);
+  // Corporate-domain names: the org owns the namespace, so short 2-char codes
+  // (hr, it) and reserved-style labels (admin, api) are allowed under it.
+  const norm = dialNormalise(label, { corporate: true });
   const domain = state.domains[state.org].find(d => d.domain === m.parent);
   const fullName = norm.valid && domain ? `${norm.label}${domain.domain}` : null;
   const conflict = domain && fullName && domain.names.some(n => n.name === fullName);
+
+  const [issued, setIssued] = React.useState(null); // set once created → association step
 
   const close = () => dispatch({ type: 'modal', modal: null });
   const create = async () => {
@@ -254,8 +258,10 @@ function IssueNameModal() {
     setError(null);
     setIssuing(true);
     try {
-      // Canton party is auto-bound by the backend (DIAL namespace).
-      await issueNameUnderDomain(state, dispatch, m.parent, norm.label, owner || 'unassigned');
+      // Keep the modal open so the owner can associate the new name with a
+      // Canton id / Ethereum wallet in the next step.
+      await issueNameUnderDomain(state, dispatch, m.parent, norm.label, owner || 'unassigned', { keepOpen: true });
+      setIssued(fullName);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -263,6 +269,25 @@ function IssueNameModal() {
     }
   };
 
+  // Phase 2 — the name exists; offer to associate it on-chain.
+  if (issued) {
+    return (
+      <DialModalFrame title={`Set up ${issued}`} eyebrow="Associate on-chain identity" onClose={close}
+        foot={
+          <>
+            <button className="dial-btn" onClick={() => { setIssued(null); setLabel(''); setOwner(''); }}>Issue another</button>
+            <button className="dial-btn primary" onClick={close}><_DCK size={14} stroke="#fff" /> Done</button>
+          </>
+        }>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 16 }}>
+          <code className="dial-mono" style={{ color: 'var(--dial-ok)' }}>{issued}</code> is live. Associate it with a Canton id or an Ethereum wallet now — or later, from the issued-names table.
+        </div>
+        <AssociateAddresses name={issued} />
+      </DialModalFrame>
+    );
+  }
+
+  // Phase 1 — the create form.
   return (
     <DialModalFrame title={`Issue a name under ${m.parent}`} eyebrow="Issue name · FR §4.2.7" onClose={close}
       foot={
@@ -304,8 +329,122 @@ function IssueNameModal() {
 
       <div className="dial-card tint" style={{ padding: 12, fontSize: 12, color: 'var(--dial-muted)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         <_DSH size={14} stroke="var(--dial-muted)" style={{ marginTop: 1 }} />
-        Canton party id is issued automatically under the DIAL namespace once you confirm — it'll show on the issued names table.
+        After you create the name you can associate it with a Canton id or an Ethereum wallet.
       </div>
+    </DialModalFrame>
+  );
+}
+
+// Reusable on-chain association UI for one issued name: get a Canton id
+// (non-custodial, one click) and/or link an Ethereum (EVM) wallet address.
+// Reads the name's current records live from state, so it reflects saves.
+function AssociateAddresses({ name }) {
+  const { state, dispatch } = useDial();
+  const nameObj = [
+    ...(state.names[state.org] || []),
+    ...((state.domains[state.org] || []).flatMap(d => d.names || [])),
+  ].find(n => n.name === name) || { records: {} };
+  const records = nameObj.records || {};
+  const canton = records['canton:omnibus'];
+  const evm = records['eip155:1'];
+
+  const [requesting, setRequesting] = React.useState(false);
+  const [evmInput, setEvmInput] = React.useState(evm || '');
+  const [savingEvm, setSavingEvm] = React.useState(false);
+  React.useEffect(() => { setEvmInput(evm || ''); }, [evm]);
+
+  const getCanton = async () => {
+    setRequesting(true);
+    try { await requestCantonParty(state, dispatch, name); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Request failed: ' + e.message } }); }
+    finally { setRequesting(false); }
+  };
+  const evmTrimmed = evmInput.trim();
+  const evmValid = /^0x[0-9a-fA-F]{40}$/.test(evmTrimmed);
+  const evmDirty = evmTrimmed.toLowerCase() !== (evm || '').toLowerCase();
+  const saveEvm = async () => {
+    if (!evmValid || !evmDirty) return;
+    setSavingEvm(true);
+    try {
+      await updateRecords(state, dispatch, name, { 'eip155:1': evmTrimmed.toLowerCase() });
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Ethereum wallet linked to ' + name + '.' } });
+    } catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setSavingEvm(false); }
+  };
+  const copy = (v) => { try { navigator.clipboard && navigator.clipboard.writeText(v); dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Copied.' } }); } catch {} };
+
+  const markStyle = (bg) => ({ width: 34, height: 34, borderRadius: 'var(--dial-radius-sm)', background: bg, color: '#fff',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontFamily: 'var(--dial-font-mono)', fontWeight: 700, flexShrink: 0 });
+  const valBox = { display: 'block', flex: 1, minWidth: 0, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+    color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12, wordBreak: 'break-all' };
+  const inputStyle = { flex: 1, minWidth: 0, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+    color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12, fontFamily: 'var(--dial-font-mono)', outline: 'none' };
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {/* Canton id */}
+      <div className="dial-card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={markStyle('#5f6cff')}>CN</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>Canton id</div>
+            <div className="dial-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>This name's identity on the Canton Network.</div>
+            {canton
+              ? <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <code className="dial-mono" style={valBox}>{canton}</code>
+                    <button className="dial-btn sm" onClick={() => copy(canton)}><_DCO size={12} /> Copy</button>
+                  </div>
+                  <div className="dial-muted" style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}><_DSH size={11} /> Non-custodial — the key lives in this browser.</span>
+                    <button className="dial-btn sm" style={{ marginLeft: 'auto' }} onClick={() => cantonKeyBackup(state.org)}>Back up key</button>
+                  </div>
+                </>
+              : requesting
+                ? <div className="dial-muted" style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}><_DSP size={14} /> Creating a key in this browser and requesting the id…</div>
+                : <>
+                    <button className="dial-btn primary sm" onClick={getCanton}><_DSH size={12} stroke="#fff" /> Get Canton id</button>
+                    <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>Free, no wallet needed — a key is created in your browser and DIAL only receives the public half.</div>
+                  </>}
+          </div>
+        </div>
+      </div>
+
+      {/* Ethereum wallet */}
+      <div className="dial-card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={markStyle('#627eea')}><_DWA size={16} stroke="#fff" /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>Ethereum wallet</div>
+            <div className="dial-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>Point this name at an EVM address (eip155:1).</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input value={evmInput} onChange={e => setEvmInput(e.target.value)} placeholder="0x…" spellCheck={false} style={inputStyle} />
+              <button className="dial-btn primary sm" onClick={saveEvm} disabled={!evmValid || !evmDirty || savingEvm}>
+                {savingEvm ? <><_DSP size={12} stroke="#fff" /> Saving</> : (evm ? 'Update' : 'Link')}
+              </button>
+            </div>
+            {evmTrimmed && !evmValid && <div style={{ color: 'var(--dial-warn)', fontSize: 11.5, marginTop: 6 }}>Enter a valid address — 0x followed by 40 hex characters.</div>}
+            {evm && !evmDirty && <div className="dial-muted" style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}><_DCC size={11} stroke="var(--dial-ok)" /> Linked.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Standalone modal to (re)associate an existing issued name on-chain — opened
+// from the issued-names table so association isn't limited to creation time.
+function AssociateNameModal() {
+  const { state, dispatch } = useDial();
+  const m = state.modal;
+  const close = () => dispatch({ type: 'modal', modal: null });
+  return (
+    <DialModalFrame title={`On-chain identity · ${m.name}`} eyebrow="Associate · Canton / Ethereum" onClose={close}
+      foot={<button className="dial-btn primary" onClick={close}><_DCK size={14} stroke="#fff" /> Done</button>}>
+      <div className="dial-muted" style={{ fontSize: 13, marginBottom: 16 }}>
+        Associate <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{m.name}</code> with a Canton id or an Ethereum wallet.
+      </div>
+      <AssociateAddresses name={m.name} />
     </DialModalFrame>
   );
 }
@@ -367,3 +506,5 @@ function ReleaseDomainModal() {
 window.RegisterDomainFlow = RegisterDomainFlow;
 window.IssueNameModal     = IssueNameModal;
 window.ReleaseDomainModal = ReleaseDomainModal;
+window.AssociateNameModal = AssociateNameModal;
+window.AssociateAddresses = AssociateAddresses;
