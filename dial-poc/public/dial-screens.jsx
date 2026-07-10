@@ -69,8 +69,7 @@ function DialTopBar() {
         {loggedIn && (
           <button className={`dial-nav-item ${active === 'inbox' || active === 'conversation' ? 'active' : ''}`} onClick={onNav('inbox')}>Inbox</button>
         )}
-        <button className={`dial-nav-item ${active === 'admin' ? 'active' : ''}`} onClick={onNav('admin')}>Admin</button>
-        <button className={`dial-nav-item ${active === 'chains' ? 'active' : ''}`} onClick={onNav('chains')}>On-chain</button>
+        <button className={`dial-nav-item ${active === 'admin' || active === 'chains' ? 'active' : ''}`} onClick={onNav('admin')}>Admin</button>
       </div>
 
       <div className="dial-topbar-spacer" />
@@ -3391,6 +3390,7 @@ function VisitorChat({ name, receptionist }) {
 function ScreenAdmin() {
   const { dispatch } = useDial();
   const [authed, setAuthed] = React.useState(hasAdminToken());
+  const [adminTab, setAdminTab] = React.useState('users'); // 'users' | 'chains'
   const [users, setUsers] = React.useState(null);
   const [busy, setBusy] = React.useState(null);
   // admin login form
@@ -3464,25 +3464,44 @@ function ScreenAdmin() {
     );
   }
 
-  if (!users) return <div className="dial-section"><div className="dial-muted">Loading users…</div></div>;
-  const verifiedCount = users.filter(x => x.verified).length;
+  const verifiedCount = users ? users.filter(x => x.verified).length : 0;
 
   return (
     <div className="dial-section" style={{ maxWidth: 860 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
           <div className="dial-eyebrow accent">Admin</div>
-          <h1 className="dial-h1" style={{ fontSize: 30, margin: '2px 0 2px' }}>Users</h1>
-          <div className="dial-muted" style={{ fontSize: 13, marginBottom: 18 }}>
-            {users.length} account{users.length === 1 ? '' : 's'} · {verifiedCount} verified. Verify an identity to grant the verified badge and discount.
-          </div>
+          <h1 className="dial-h1" style={{ fontSize: 30, margin: '2px 0 2px' }}>Admin</h1>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="dial-btn sm" onClick={() => refresh(true)} disabled={refreshing}>
-            {refreshing ? <Spinner size={12} /> : <Refresh size={12} />} Refresh
-          </button>
+          {adminTab === 'users' && (
+            <button className="dial-btn sm" onClick={() => refresh(true)} disabled={refreshing}>
+              {refreshing ? <Spinner size={12} /> : <Refresh size={12} />} Refresh
+            </button>
+          )}
           <button className="dial-btn ghost sm" onClick={signOut}>Sign out</button>
         </div>
+      </div>
+
+      {/* Sub-tabs: user administration + the on-chain mirror explorer. */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', margin: '10px 0 20px' }}>
+        {[['users', 'Users'], ['chains', 'On-chain']].map(([k, label]) => (
+          <button key={k} onClick={() => setAdminTab(k)}
+            style={{ border: 0, background: 'transparent', padding: '10px 14px', fontSize: 13, cursor: 'pointer', marginBottom: -1,
+              borderBottom: '2px solid ' + (adminTab === k ? 'var(--dial-accent)' : 'transparent'),
+              color: adminTab === k ? 'var(--dial-text)' : 'var(--dial-muted)', fontWeight: adminTab === k ? 600 : 500 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {adminTab === 'chains' && <ScreenChains />}
+
+      {adminTab === 'users' && (!users
+        ? <div className="dial-muted">Loading users…</div>
+        : <>
+      <div className="dial-muted" style={{ fontSize: 13, marginBottom: 18 }}>
+        {users.length} account{users.length === 1 ? '' : 's'} · {verifiedCount} verified. Verify an identity to grant the verified badge and discount.
       </div>
       <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
         {users.map((user, i) => (
@@ -3505,6 +3524,7 @@ function ScreenAdmin() {
           </div>
         ))}
       </div>
+        </>)}
     </div>
   );
 }
