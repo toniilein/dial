@@ -1192,8 +1192,8 @@ function ScreenNameDetail() {
   const isCorporateSub = !!name.parentDomain;
   const tabDefs = (isCorporateSub
     ? [
+        // Corporate subnames are managed from the domain; no per-name settings.
         ['records',  'On-chain identity', Object.keys(name.records).length],
-        ['settings', 'Settings',          null],
       ]
     : [
         ['profile',      'Profile',       LINK_PLATFORMS.filter(p => (name.text || {})[p.key]).length || null],
@@ -2478,10 +2478,12 @@ function ScreenDomainDetail() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 28 }}>
-        <div style={{ width: 64, height: 64, borderRadius: 'var(--dial-radius)', background: 'var(--dial-accent)', color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 800, fontSize: 28 }}>
-          {domain.domain.slice(1, 2).toUpperCase()}
-        </div>
+        {isAvatarValue(domain.logo)
+          ? <img src={domain.logo} alt="Company logo" style={{ width: 64, height: 64, borderRadius: 'var(--dial-radius)', objectFit: 'cover', border: 'var(--dial-border-w) solid var(--dial-border)', flexShrink: 0 }} />
+          : <div style={{ width: 64, height: 64, borderRadius: 'var(--dial-radius)', background: 'var(--dial-accent)', color: '#fff', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 800, fontSize: 28 }}>
+              {domain.domain.slice(1, 2).toUpperCase()}
+            </div>}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
             <div className="dial-mono" style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em' }}>{domain.domain}</div>
@@ -2505,6 +2507,7 @@ function ScreenDomainDetail() {
       <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
         {[
           ['names',    'Issued names', domain.names.length],
+          ['company',  'Company',      null],
           ['settings', 'Settings',     null],
         ].map(([k, label, count]) => (
           <button key={k}
@@ -2525,7 +2528,90 @@ function ScreenDomainDetail() {
       </div>
 
       {tab === 'names'    && <DomainNames domain={domain} />}
+      {tab === 'company'  && <DomainCompany domain={domain} />}
       {tab === 'settings' && <DomainSettings domain={domain} />}
+    </div>
+  );
+}
+
+// Company tab — the enterprise's own details (read-only, from the verified
+// account) plus a logo the org can upload. The logo shows in the domain header.
+function DomainCompany({ domain }) {
+  const { state, dispatch } = useDial();
+  const id = state.identity[state.org] || {};
+  const addr = id.address;
+  const fileRef = React.useRef(null);
+  const [busy, setBusy] = React.useState(false);
+  const hasLogo = isAvatarValue(domain.logo);
+
+  const onFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await saveDomainLogo(state, dispatch, domain.domain, dataUrl);
+    } catch (err) { dispatch({ type: 'toast', toast: { kind: 'info', text: err.message || 'Upload failed.' } }); }
+    finally { setBusy(false); }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try { await saveDomainLogo(state, dispatch, domain.domain, ''); }
+    catch (err) { dispatch({ type: 'toast', toast: { kind: 'info', text: err.message || 'Remove failed.' } }); }
+    finally { setBusy(false); }
+  };
+
+  const rows = [
+    ['Legal name', id.name || '—'],
+    ['Registration', id.regId ? `${id.regId}${id.country ? ' ' + id.country : ''}` : '—'],
+    ['Identity', id.verified ? (id.level && !/^verified$/i.test(id.level) ? `Verified · ${id.level}` : 'Verified') : 'Not verified'],
+    ['Corporate domain', domain.domain],
+    ['Expires', domain.expires],
+    addr && ['Registered address', [addr.line1, addr.city, addr.country].filter(Boolean).join(', ')],
+  ].filter(Boolean);
+
+  return (
+    <div style={{ display: 'grid', gap: 18, maxWidth: 880 }}>
+      {/* Logo */}
+      <div>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Company logo</h3>
+        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>Shown on this domain and its issued-name pages. PNG, JPEG, GIF, or WebP under 1 MB.</div>
+        <div className="dial-card" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
+          <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={onFile} style={{ display: 'none' }} />
+          {hasLogo
+            ? <img src={domain.logo} alt="Company logo" style={{ width: 72, height: 72, borderRadius: 'var(--dial-radius-sm)', objectFit: 'cover', border: 'var(--dial-border-w) solid var(--dial-border)', flexShrink: 0 }} />
+            : <div style={{ width: 72, height: 72, borderRadius: 'var(--dial-radius-sm)', background: 'var(--dial-accent)', color: '#fff', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 800, fontSize: 26 }}>
+                {domain.domain.slice(1, 2).toUpperCase()}
+              </div>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{hasLogo ? 'Logo set' : 'No logo yet'}</div>
+            <div className="dial-muted" style={{ fontSize: 12, marginTop: 2 }}>{hasLogo ? 'Replace or remove it below.' : 'Upload one to brand your corporate domain.'}</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button className="dial-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>
+                {busy ? <><Spinner size={13} /> Working</> : (hasLogo ? 'Replace' : 'Upload')}
+              </button>
+              {hasLogo && <button className="dial-btn" onClick={remove} disabled={busy}>Remove</button>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Company information */}
+      <div>
+        <h3 className="dial-h3" style={{ margin: 0 }}>Company information</h3>
+        <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>From your DIAL-verified account.</div>
+        <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {rows.map(([label, value], i) => (
+            <div key={label} style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 12, padding: '12px 16px',
+              borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)', fontSize: 13 }}>
+              <div className="dial-muted">{label}</div>
+              <div style={{ fontWeight: label === 'Legal name' ? 600 : 500 }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

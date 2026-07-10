@@ -572,9 +572,11 @@ async function loadOrg(state, dispatch, org) {
   // Hydrate each domain with apex records + its issued names.
   const hydratedDomains = await Promise.all(allDomains.map(async (d) => {
     let base = {};
+    let logo = '';
     try {
       const detail = await dialApi('GET', '/v1/domains/' + encodeURIComponent(d.label));
       base = detail.addresses || {};
+      logo = detail.logo || '';
     } catch {}
     const issuedRaw = allNames.filter(n => n.name.endsWith('.' + d.label));
     const issued = await Promise.all(issuedRaw.map(async (n) => {
@@ -611,6 +613,7 @@ async function loadOrg(state, dispatch, org) {
       expires_at: d.expires_at,
       verified: !!d.attestation_hash,
       base,
+      logo,
       attestation: d.attestation_hash,
       names: issued,
     };
@@ -1030,6 +1033,16 @@ async function saveAvatar(state, dispatch, name, value) {
   dispatch({ type: 'toast', toast: { kind: 'ok', text: value ? 'Profile picture updated.' : 'Profile picture removed.' } });
 }
 
+// Set or clear the corporate-domain logo (stored on the domain, not a name).
+async function saveDomainLogo(state, dispatch, domainStr, value) {
+  const label = String(domainStr).replace(/^\./, '');
+  const caller = CALLER_ADDRESSES[state.org];
+  await dialApi('POST', '/v1/domains/' + encodeURIComponent(label) + '/logo',
+    { caller, body: { value: value || '' } });
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: value ? 'Company logo updated.' : 'Company logo removed.' } });
+}
+
 // Make a name's public page public (shareable) or private (owner-only).
 async function setPageVisibility(state, dispatch, name, isPublic) {
   const caller = CALLER_ADDRESSES[state.org];
@@ -1089,6 +1102,7 @@ window.saveLinks            = saveLinks;
 window.isAvatarValue        = isAvatarValue;
 window.fileToAvatarDataUrl  = fileToAvatarDataUrl;
 window.saveAvatar           = saveAvatar;
+window.saveDomainLogo       = saveDomainLogo;
 window.setPageVisibility    = setPageVisibility;
 window.publicPageUrl        = publicPageUrl;
 window.loadPublic           = loadPublic;

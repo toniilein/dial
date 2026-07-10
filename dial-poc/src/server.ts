@@ -624,7 +624,26 @@ app.get('/v1/domains/:label', (req, res) => {
   const lc = req.params.label.toLowerCase().replace(/^\./, '');
   const d = domainsSvc.get(lc);
   if (!d) return res.status(404).json({ error: 'not found' });
-  res.json({ ...d, addresses: domainsSvc.getAddresses(lc) });
+  res.json({ ...d, addresses: domainsSvc.getAddresses(lc), logo: domainsSvc.getText(lc, 'logo') });
+});
+
+// Owner: set or clear the corporate-domain logo (same image rules as avatars).
+app.post('/v1/domains/:label/logo', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const value = req.body?.value;
+  if (typeof value !== 'string') return res.status(400).json({ error: 'value required' });
+  const v = value.trim();
+  if (v !== '' && !isValidAvatar(v)) {
+    return res.status(400).json({ error: 'invalid logo — upload a PNG, JPEG, GIF, or WebP image under 1 MB' });
+  }
+  try {
+    const rec = domainsSvc.setText(c, req.params.label.toLowerCase().replace(/^\./, ''), 'logo', v);
+    res.json(rec);
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'domain not found' ? 404 : 400)).json({ error: msg });
+  }
 });
 
 app.post('/v1/domains/:label/addr/:chain', (req, res) => {

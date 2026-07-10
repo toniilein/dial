@@ -105,3 +105,29 @@ export function setAddr(caller: string, label: string, chainId: string, value: s
   bus.publish({ type: 'resolver.changed', name: '.' + label, key, value });
   return { label, key, value, updated_at };
 }
+
+// Free-form domain text, stored under `text.<key>` in domain_records — mirrors
+// the per-name text/avatar records. Used for the company logo. Read by exact
+// key (single row → we read `value`, so column-case quirks don't bite).
+export function getText(label: string, key: string): string | null {
+  const row = db.prepare(`SELECT value FROM domain_records WHERE label = ? AND key = ?`).get(label, `text.${key}`) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setText(caller: string, label: string, key: string, value: string): DomainRecord {
+  const d = get(label);
+  if (!d) throw new Error('domain not found');
+  if (d.owner_address.toLowerCase() !== caller.toLowerCase()) throw new Error('not owner');
+  const updated_at = Date.now();
+  const k = `text.${key}`;
+  if (!value) {
+    db.prepare(`DELETE FROM domain_records WHERE label = ? AND key = ?`).run(label, k);
+  } else {
+    db.prepare(`
+      INSERT INTO domain_records (label, key, value, updated_at)
+      VALUES (@label, @key, @value, @updated_at)
+      ON CONFLICT(label, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run({ label, key: k, value, updated_at });
+  }
+  return { label, key: k, value, updated_at };
+}
