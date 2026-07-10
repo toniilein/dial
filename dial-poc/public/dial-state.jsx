@@ -188,6 +188,12 @@ async function authBootstrap(dispatch) {
   if (m) { setSession(decodeURIComponent(m[1])); history.replaceState(null, '', window.location.pathname + window.location.search); }
   else if (e) { err = decodeURIComponent(e[1]); history.replaceState(null, '', window.location.pathname + window.location.search); }
   if (err) dispatch({ type: 'toast', toast: { kind: 'info', text: 'Sign-in failed: ' + err } });
+  // Shareable public-page deep link: #/<name>. Kept in the URL so a refresh
+  // reopens the same page. Session restore below uses keepRoute, preserving it.
+  const share = window.location.hash.match(/^#\/([^?&#]+)$/);
+  if (share) {
+    dispatch({ type: 'route', route: { screen: 'public', name: decodeURIComponent(share[1]).toLowerCase(), from: 'home' } });
+  }
   if (!sessionToken) return;
   try { const { user } = await dialApi('GET', '/v1/auth/me'); applyLogin(dispatch, user, { keepRoute: true }); }
   catch { setSession(null); } // stale/invalid token
@@ -305,15 +311,20 @@ async function waitForReceipt(eth, hash, tries = 80) {
 // Full self-custody: the consumer's OWN wallet sends every transaction and pays
 // the gas. DIAL only signs an off-chain voucher; it never sends a tx. The wallet
 // confirms each step (claim control → set address → mint the name NFT) in order.
-async function selfCustodyOnchain(dispatch, name, value) {
+// `onProgress({ label, step, total })` (optional) lets the UI show live progress
+// instead of a bare spinner — these flows can take minutes on a testnet.
+async function selfCustodyOnchain(dispatch, name, value, onProgress) {
+  const progress = (label, step, total) => { try { onProgress && onProgress({ label, step, total }); } catch {} };
   const eth = window.ethereum;
   if (!eth) throw new Error('Install/connect MetaMask to take this on-chain.');
+  progress('Connecting your wallet…', 0, 0);
   const accounts = await eth.request({ method: 'eth_requestAccounts' });
   const from = accounts && accounts[0];
   if (!from) throw new Error('No wallet account selected.');
   const base = '/v1/chains/onchain/' + encodeURIComponent(name);
 
   // DIAL builds the unsigned txs + signs the claim voucher (off-chain, gasless).
+  progress('Preparing transactions…', 0, 0);
   const prep = await dialApi('POST', base + '/selfcustody-txs', { body: { from, value } });
   if (!prep.steps || !prep.steps.length) {
     const msg = prep.nftHeldByOther
@@ -327,6 +338,7 @@ async function selfCustodyOnchain(dispatch, name, value) {
   const cfg = await dialApi('GET', '/v1/chains/config');
   const targetHex = '0x' + Number(cfg.chainId).toString(16);
   if ((await eth.request({ method: 'eth_chainId' })) !== targetHex) {
+    progress('Switching your wallet to ' + (cfg.chainName || 'the right network') + '…', 0, 0);
     try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }); }
     catch (e) {
       if (e && e.code === 4902) throw new Error('Add the Sepolia test network to your wallet, then try again.');
@@ -335,9 +347,12 @@ async function selfCustodyOnchain(dispatch, name, value) {
   }
 
   // Send each step FROM THE USER'S WALLET (they pay gas), waiting for each to mine.
-  for (const step of prep.steps) {
-    dispatch({ type: 'toast', toast: { kind: 'info', text: 'Confirm "' + step.label + '" in your wallet (you pay the gas)…' } });
+  const total = prep.steps.length;
+  for (let i = 0; i < total; i++) {
+    const step = prep.steps[i];
+    progress('Confirm “' + step.label + '” in your wallet…', i + 1, total);
     const txHash = await eth.request({ method: 'eth_sendTransaction', params: [{ from, to: step.to, data: step.data, value: '0x0' }] });
+    progress('“' + step.label + '” confirming on-chain (≈15–30s)…', i + 1, total);
     await waitForReceipt(eth, txHash);
     await dialApi('POST', base + '/selfcustody-confirm', { body: { op: step.op, txHash, value: step.value } });
   }
@@ -558,10 +573,12 @@ async function loadOrg(state, dispatch, org) {
     const issued = await Promise.all(issuedRaw.map(async (n) => {
       let addresses = {};
       let attestation = n.attestation_hash;
+      let pagePublic = true;
       try {
         const r = await dialApi('GET', '/v1/resolver/' + encodeURIComponent(n.name));
         addresses = r.addresses || {};
         attestation = r.attestation_hash;
+        pagePublic = r.page_public !== false;
       } catch {}
       return {
         // Match the regular-name shape so ScreenNameDetail can render this
@@ -577,6 +594,7 @@ async function loadOrg(state, dispatch, org) {
         text: {},
         subnames: [],
         parentDomain: '.' + d.label,
+        page_public: pagePublic,
       };
     }));
     return {
@@ -610,6 +628,7 @@ async function loadOrg(state, dispatch, org) {
       text:       r.texts || (prev && prev.text) || {},
       attestation: r.attestation_hash,
       subnames:   (prev && prev.subnames) || [],
+      page_public: r.page_public === undefined ? (prev ? prev.page_public : true) : r.page_public,
     };
   }));
 
@@ -636,8 +655,8 @@ const fetchOrgNames = loadOrg;
 // Identity verification is admin-only — users can no longer self-verify. The
 // `verified` flag comes from the backend account (set by an admin) via /me.
 
-// Register a name. The backend auto-binds the DIAL Canton party id and returns
-// it so the Done step can show it as the registration receipt.
+// Register a name. A Canton party is NOT bound here anymore — the owner requests
+// one later from the name's On-chain tab (see requestCantonParty).
 async function registerName(state, dispatch, label, durationYears, opts) {
   const org = state.org;
   const caller = CALLER_ADDRESSES[org];
@@ -647,7 +666,59 @@ async function registerName(state, dispatch, label, durationYears, opts) {
     body: { name: label + '.dial', duration_years: durationYears, attestation_hash: attHash },
   });
   await loadOrg(state, dispatch, org);
-  return r.canton_party || dialCantonParty(label + '.dial');
+  return r;
+}
+
+// ── Non-custodial Canton key (held in the browser, never sent to DIAL) ──────
+// One ECDSA P-256 keypair per account = one Canton namespace. The private key
+// lives only in this browser's localStorage; DIAL only ever receives the public
+// key + a signature. The user proves control by signing `DIAL-canton-bind:<name>`.
+const CANTON_BIND_PREFIX = 'DIAL-canton-bind:';
+function cantonKeyStorageKey(owner) { return 'dial_canton_key_' + String(owner || '').toLowerCase(); }
+function hexOf(buf) { return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+
+async function getOrCreateCantonKey(owner) {
+  const skey = cantonKeyStorageKey(owner);
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(skey) || 'null'); } catch {}
+  if (stored && stored.priv && stored.pubSpkiHex) {
+    const priv = await crypto.subtle.importKey('jwk', stored.priv, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    return { priv, pubSpkiHex: stored.pubSpkiHex, created: false };
+  }
+  const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const privJwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+  const pubSpkiHex = hexOf(await crypto.subtle.exportKey('spki', kp.publicKey));
+  try { localStorage.setItem(skey, JSON.stringify({ priv: privJwk, pubSpkiHex, created_at: Date.now() })); } catch {}
+  return { priv: kp.privateKey, pubSpkiHex, created: true };
+}
+function hasCantonKey(org) {
+  try { return !!localStorage.getItem(cantonKeyStorageKey(CALLER_ADDRESSES[org])); } catch { return false; }
+}
+// Download the browser-held keypair so the user can back it up (it's the only copy).
+function cantonKeyBackup(org) {
+  try {
+    const raw = localStorage.getItem(cantonKeyStorageKey(CALLER_ADDRESSES[org]));
+    if (!raw) return;
+    const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'dial-canton-key.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch {}
+}
+
+// Request a NON-CUSTODIAL Canton party: generate/reuse the browser keypair, sign
+// the binding statement, and send only the public key + signature to DIAL.
+async function requestCantonParty(state, dispatch, name) {
+  const owner = CALLER_ADDRESSES[state.org];
+  const key = await getOrCreateCantonKey(owner);
+  const data = new TextEncoder().encode(CANTON_BIND_PREFIX + name.toLowerCase());
+  const signature = hexOf(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.priv, data));
+  const r = await dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/canton/request',
+    { body: { public_key: key.pubSpkiHex, signature } });
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Canton address created — only you hold the key.' } });
+  return r.party;
 }
 
 async function updateRecords(state, dispatch, name, records) {
@@ -715,8 +786,8 @@ async function issueNameUnderDomain(state, dispatch, parentDomain, label, owner)
   });
   await loadOrg(state, dispatch, org);
   dispatch({ type: 'modal', modal: null });
-  dispatch({ type: 'toast', toast: { kind: 'ok', text: fullName + ' issued · party ' + (r.canton_party || '').slice(0, 24) + '…' } });
-  return r.canton_party || dialCantonParty(fullName);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: fullName + ' issued.' } });
+  return r;
 }
 
 async function releaseDomainName(state, dispatch, parentDomain, fullName) {
@@ -950,6 +1021,20 @@ async function saveAvatar(state, dispatch, name, value) {
   dispatch({ type: 'toast', toast: { kind: 'ok', text: value ? 'Profile picture updated.' : 'Profile picture removed.' } });
 }
 
+// Make a name's public page public (shareable) or private (owner-only).
+async function setPageVisibility(state, dispatch, name, isPublic) {
+  const caller = CALLER_ADDRESSES[state.org];
+  await dialApi('POST', '/v1/names/' + encodeURIComponent(name) + '/visibility',
+    { caller, body: { public: !!isPublic } });
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: isPublic ? 'Your page is public.' : 'Your page is now private.' } });
+}
+
+// The shareable public-page URL for a name (deep-links straight to the page).
+function publicPageUrl(name) {
+  return window.location.origin + '/#/' + encodeURIComponent(name);
+}
+
 // Bind an EVM address to a name.
 async function addEvmAddress(state, dispatch, name, addr) {
   if (!isEvmAddress(addr)) throw new Error('Enter a valid EVM address (0x + 40 hex characters).');
@@ -995,6 +1080,8 @@ window.saveLinks            = saveLinks;
 window.isAvatarValue        = isAvatarValue;
 window.fileToAvatarDataUrl  = fileToAvatarDataUrl;
 window.saveAvatar           = saveAvatar;
+window.setPageVisibility    = setPageVisibility;
+window.publicPageUrl        = publicPageUrl;
 window.loadPublic           = loadPublic;
 window.sendVisitorMessage   = sendVisitorMessage;
 window.loadReceptionist     = loadReceptionist;

@@ -41,8 +41,6 @@ function RegisterFlow() {
   // When the user opts to skip Pairpoint verification, the registration goes
   // through with no attestation hash (§4.6 demo-mode bypass).
   const [skipVerify, setSkipVerify] = React.useState(false);
-  // Canton party id is populated after payment — shown on the Done step.
-  const [cantonParty, setCantonParty] = React.useState('');
 
   // Pricing — verified consumers on .dial get a discount unless they opt to
   // skip verification.
@@ -83,8 +81,7 @@ function RegisterFlow() {
     setError(null);
     setPaying(true);
     try {
-      const party = await registerName(state, dispatch, m.label, duration, { skipVerify: skipVerify && !id.verified });
-      setCantonParty(party);
+      await registerName(state, dispatch, m.label, duration, { skipVerify: skipVerify && !id.verified });
       setStep(3);
       // The Done step stays open so the user can read the receipt — they
       // click "View name" in the foot to dismiss.
@@ -141,7 +138,7 @@ function RegisterFlow() {
       {step === 0 && <RegStepDuration label={m.label} duration={duration} setDuration={setDuration} price={price} listPrice={listPrice} eligibleDiscount={eligibleDiscount} verifiedAvailable={!id.verified} />}
       {step === 1 && <RegStepIdentity verifying={verifying} runVerify={runVerify} skipIdentity={skipIdentity} skipVerify={skipVerify} />}
       {step === 2 && <RegStepReview   label={m.label} duration={duration} totalUsdc={totalUsdc} networkFee={networkFee} skipVerify={skipVerify && !id.verified} price={price} listPrice={listPrice} />}
-      {step === 3 && <RegStepDone     label={m.label} cantonParty={cantonParty} />}
+      {step === 3 && <RegStepDone     label={m.label} />}
     </DialModalFrame>
   );
 }
@@ -401,7 +398,7 @@ function Line({ k, v, muted }) {
   );
 }
 
-function RegStepDone({ label, cantonParty }) {
+function RegStepDone({ label }) {
   return (
     <div style={{ padding: '20px 4px 4px' }}>
       <div style={{ textAlign: 'center', marginBottom: 22 }}>
@@ -411,20 +408,15 @@ function RegStepDone({ label, cantonParty }) {
         </div>
         <div className="dial-h2" style={{ fontSize: 24 }}>{label}.dial is yours.</div>
         <div className="dial-muted" style={{ fontSize: 13, marginTop: 6, maxWidth: 380, marginLeft: 'auto', marginRight: 'auto' }}>
-          On-chain copies are propagating to Canton. We'll send a receipt to your verified email.
+          We'll send a receipt to your verified email.
         </div>
       </div>
 
       <div className="dial-card" style={{ padding: 14, marginBottom: 12 }}>
         <div className="dial-field-label">DIAL name</div>
         <div className="dial-mono" style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>{label}.dial</div>
-        <div className="dial-field-label">Canton party id <span style={{ color: 'var(--dial-accent)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>· issued by DIAL</span></div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <code className="dial-mono" style={{ fontSize: 11, padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)',
-            background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
-            flex: 1, wordBreak: 'break-all' }}>{cantonParty || '(propagating…)'}</code>
-          <button className="dial-btn sm" onClick={() => navigator.clipboard?.writeText(cantonParty)}
-            disabled={!cantonParty} title="Copy">Copy</button>
+        <div className="dial-muted" style={{ fontSize: 12.5 }}>
+          Want a Canton party for this name? Open the name's <strong style={{ color: 'var(--dial-text)' }}>On-chain</strong> tab and request one — chain addresses are added when you need them.
         </div>
       </div>
     </div>
@@ -1460,7 +1452,7 @@ function CheckoutFlow() {
   const [step, setStep] = React.useState(0);
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState(null);
-  const [registered, setRegistered] = React.useState([]); // [{ name, canton_party }]
+  const [registered, setRegistered] = React.useState([]); // [{ name }]
 
   const verified = state.loggedIn && id.verified;
   // Discounted vs list pricing for the entire cart.
@@ -1484,8 +1476,8 @@ function CheckoutFlow() {
         const label = item.name.replace(/\.dial$/, '');
         // Unverified users register with skipVerify so we don't force a
         // KYC walk mid-checkout — they pay the list price (no discount).
-        const cantonParty = await registerName(state, dispatch, label, item.duration_years, { skipVerify: !id.verified });
-        out.push({ name: item.name, canton_party: cantonParty });
+        await registerName(state, dispatch, label, item.duration_years, { skipVerify: !id.verified });
+        out.push({ name: item.name });
       }
       setRegistered(out);
       dispatch({ type: 'cart-clear' });
@@ -1741,7 +1733,7 @@ function CheckoutDone({ registered }) {
         </div>
         <div className="dial-h2" style={{ fontSize: 24 }}>{registered.length} name{registered.length === 1 ? '' : 's'} registered.</div>
         <div className="dial-muted" style={{ fontSize: 13, marginTop: 6 }}>
-          DIAL has bound a Canton party for each name under the DIAL namespace.
+          Add a Canton party or EVM address to any name from its On-chain tab, whenever you need one.
         </div>
       </div>
 
@@ -1749,11 +1741,7 @@ function CheckoutDone({ registered }) {
         {registered.map((r, i) => (
           <div key={r.name} style={{ padding: 12,
             borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-            <div className="dial-mono" style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{r.name}</div>
-            <code className="dial-mono" style={{ fontSize: 10.5, padding: '4px 8px', display: 'inline-block', borderRadius: 'var(--dial-radius-sm)',
-              background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)', wordBreak: 'break-all' }}>
-              {r.canton_party}
-            </code>
+            <div className="dial-mono" style={{ fontSize: 14, fontWeight: 600 }}>{r.name}</div>
           </div>
         ))}
       </div>

@@ -2,7 +2,7 @@
 // Reads state from useDial(), mutates only via dispatch / async actions in dial-state.jsx.
 
 const { Search, ArrowR, ArrowL, Check, CheckCircle, X, Plus, Edit, Copy, External,
-  Shield, User, Building, Wallet, Globe, Hash, Chevron, ChevronDown, Bell,
+  Shield, User, Building, Wallet, Globe, Hash, Chevron, ChevronDown, Bell, Link,
   Wand, Refresh, Code, Dollar, Calendar, Spinner, Cart, Trash2, Chain } = window.DialIcons;
 
 // ─────────────────────────────────────────────────────────────
@@ -1685,6 +1685,13 @@ function NameProfile({ name }) {
           How you appear on your public page — your picture and the ways people can reach you.
         </div>
 
+        <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>Sharing</h3>
+        <div className="dial-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          Your page is private until you turn on sharing — then anyone with the link can view it.
+        </div>
+        <PageSharing name={name} />
+
+        <h3 className="dial-h3" style={{ margin: '18px 0 12px' }}>Picture</h3>
         <AvatarEditor name={name} />
 
         <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>About</h3>
@@ -1729,12 +1736,71 @@ function NameProfile({ name }) {
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
           <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
             <Globe size={13} /> View public page
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Public-page sharing + visibility. A public/private toggle plus the shareable
+// deep link (with copy). Saves immediately; state comes from name.page_public.
+function PageSharing({ name }) {
+  const { state, dispatch } = useDial();
+  const isPublic = name.page_public !== false;
+  const url = publicPageUrl(name.name);
+  const [busy, setBusy] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    try { await setPageVisibility(state, dispatch, name.name, !isPublic); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: e.message || 'Update failed.' } }); }
+    finally { setBusy(false); }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true); setTimeout(() => setCopied(false), 1500);
+    } catch { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Copy failed — select the link and copy manually.' } }); }
+  };
+
+  const fieldStyle = { flex: 1, minWidth: 0, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+    color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12.5, outline: 'none',
+    fontFamily: 'var(--dial-font-mono)', opacity: isPublic ? 1 : 0.55 };
+
+  return (
+    <div className="dial-card" style={{ padding: 16, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>
+            {isPublic ? 'Public' : 'Private'}
+            <span className={`dial-pill ${isPublic ? 'ok' : 'warn'}`} style={{ marginLeft: 8, fontSize: 10 }}>{isPublic ? 'Live' : 'Hidden'}</span>
+          </div>
+          <div className="dial-muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {isPublic ? 'Anyone with the link can view your page.' : 'Only you can view your page.'}
+          </div>
+        </div>
+        <button onClick={toggle} disabled={busy} role="switch" aria-checked={isPublic}
+          title={isPublic ? 'Make private' : 'Make public'}
+          style={{ position: 'relative', width: 44, height: 26, borderRadius: 999, border: 0, flexShrink: 0,
+            cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+            background: isPublic ? 'var(--dial-accent)' : 'var(--dial-border)', transition: 'background .15s' }}>
+          <span style={{ position: 'absolute', top: 3, left: isPublic ? 21 : 3, width: 20, height: 20, borderRadius: '50%',
+            background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.3)' }} />
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+        <input readOnly value={url} onFocus={e => e.target.select()} style={fieldStyle} />
+        <button className="dial-btn" onClick={copy} disabled={!isPublic}>
+          {copied ? <><Check size={13} /> Copied</> : <><Link size={13} /> Copy link</>}
+        </button>
+      </div>
+      {!isPublic && <div className="dial-muted" style={{ fontSize: 11, marginTop: 8 }}>The link won't work for others while your page is private.</div>}
     </div>
   );
 }
@@ -1913,6 +1979,43 @@ function NameReceptionist({ name }) {
   );
 }
 
+// Human-readable wallet errors (MetaMask codes → plain sentences).
+function friendlyWalletError(e) {
+  if (e && e.code === -32002) return 'Your wallet is already asking — open the MetaMask popup to continue.';
+  if (e && e.code === 4001) return 'Cancelled in your wallet — nothing was sent.';
+  if (e && /insufficient funds/i.test(e.message || '')) return 'Not enough ETH in your wallet to pay the gas for this transaction.';
+  return (e && e.message) || 'Wallet request failed.';
+}
+
+// Small "copy to clipboard" button used by the chain-address rows.
+function CopyBtn({ text, dispatch }) {
+  return (
+    <button className="dial-iconbtn" title="Copy" onClick={() => {
+      navigator.clipboard?.writeText(text);
+      dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Copied to clipboard.' } });
+    }}>
+      <Copy size={13} />
+    </button>
+  );
+}
+
+// Live progress line for multi-step on-chain flows (wallet confirm → mining).
+// Shown instead of a bare spinner — these steps can take a minute each.
+function OnchainProgress({ p }) {
+  if (!p) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 10px',
+      background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+      borderRadius: 'var(--dial-radius-sm)' }}>
+      <Spinner size={13} />
+      <span style={{ fontSize: 12 }}>
+        {p.total > 0 && <strong style={{ marginRight: 6 }}>Step {p.step} of {p.total}</strong>}
+        {p.label}
+      </span>
+    </div>
+  );
+}
+
 // Add / edit the name's EVM (eip155:1) address — proof-of-control mocked,
 // but the 0x + 40-hex shape is validated client- and server-side.
 function EvmEditor({ name }) {
@@ -1925,6 +2028,7 @@ function EvmEditor({ name }) {
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState(current);
   const [saving, setSaving] = React.useState(false);
+  const [progress, setProgress] = React.useState(null); // { label, step, total } during the wallet flow
   const [err, setErr] = React.useState(null);
   const [nft, setNft] = React.useState(null); // minted name NFT (for the Etherscan link)
   React.useEffect(() => { setValue(propAddr); setErr(null); if (propAddr) setSavedAddr(''); }, [propAddr]);
@@ -1957,10 +2061,10 @@ function EvmEditor({ name }) {
   const saveSigned = async () => {
     setErr(null); setSaving(true);
     try {
-      await selfCustodyOnchain(dispatch, name.name, value);
+      await selfCustodyOnchain(dispatch, name.name, value, setProgress);
       setSavedAddr(value); // show it right away (the flow only resolves once the address is confirmed on-chain)
       setOpen(false);
-    } catch (e) { setErr(e.message || String(e)); }
+    } catch (e) { setErr(friendlyWalletError(e)); }
     finally {
       // Always refresh — even on a partial flow (e.g. address set but mint slow),
       // reflect whatever is now persisted, and pick up the minted NFT link.
@@ -1969,8 +2073,19 @@ function EvmEditor({ name }) {
         const r = await dialApi('GET', '/v1/chains/onchain/' + encodeURIComponent(name.name));
         if (r && r.nft && r.explorerBase) setNft({ ...r.nft, explorerBase: r.explorerBase });
       } catch {}
-      setSaving(false);
+      setSaving(false); setProgress(null);
     }
+  };
+  // Convenience: pull the address straight from the connected wallet instead of
+  // making the user copy-paste 42 hex characters.
+  const useWallet = async () => {
+    setErr(null);
+    try {
+      const eth = window.ethereum;
+      if (!eth) { setErr('No wallet detected — install MetaMask, or paste an address.'); return; }
+      const accounts = await eth.request({ method: 'eth_requestAccounts' });
+      if (accounts && accounts[0]) setValue(accounts[0]);
+    } catch (e) { setErr(friendlyWalletError(e)); }
   };
 
   if (current && !open) {
@@ -1981,11 +2096,12 @@ function EvmEditor({ name }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>EVM</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ fontWeight: 600, fontSize: 13 }}>EVM-compatible</span>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>Ethereum address</span>
               <code className="dial-mono dial-muted" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>eip155:1</code>
             </div>
             <code className="dial-mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{current}</code>
           </div>
+          <CopyBtn text={current} dispatch={dispatch} />
           <button className="dial-btn sm" onClick={() => setOpen(true)}><Edit size={12} /> Edit</button>
         </div>
         {nftLink}
@@ -1996,37 +2112,57 @@ function EvmEditor({ name }) {
   if (!current && !open) {
     return (
       <div>
-        <button className="dial-btn sm" onClick={() => setOpen(true)}>
-          <Plus size={12} /> Add EVM address
-        </button>
-        {nftLink && <div>{nftLink}</div>}
+        <div className="dial-card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: '#2b6cff', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>EVM</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>Ethereum address</div>
+            <div className="dial-muted" style={{ fontSize: 11 }}>
+              Let people send to <span className="dial-mono">{name.name}</span> on Ethereum — link a wallet address to this name.
+            </div>
+          </div>
+          <button className="dial-btn primary sm" onClick={() => setOpen(true)}>
+            <Plus size={12} stroke="#fff" /> Add address
+          </button>
+        </div>
+        {nftLink}
       </div>
     );
   }
 
   return (
     <div className="dial-card" style={{ padding: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontWeight: 600, fontSize: 13 }}>EVM-compatible <code className="dial-mono dial-muted" style={{ fontSize: 11 }}>eip155:1</code></span>
-        <span className="dial-muted" style={{ fontSize: 11 }}>0x + 40 hex</span>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{current ? 'Update' : 'Add'} the Ethereum address for {name.name}</div>
+      <div className="dial-muted" style={{ fontSize: 11.5, marginBottom: 10 }}>
+        Anyone sending to this name on an EVM chain will use this address.
       </div>
-      <input value={value} onChange={e => setValue(e.target.value)} placeholder="0x…" autoFocus
-        style={{ width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid ' + (value && !valid ? 'var(--dial-warn)' : 'var(--dial-border)'),
-          color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)',
-          fontFamily: 'var(--dial-font-mono)', fontSize: 12, outline: 'none' }} />
-      {value && !valid && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>Expected 0x followed by 40 hex characters.</div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={value} onChange={e => setValue(e.target.value)} placeholder="0x…" autoFocus
+          style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid ' + (value && !valid ? 'var(--dial-warn)' : 'var(--dial-border)'),
+            color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)',
+            fontFamily: 'var(--dial-font-mono)', fontSize: 12, outline: 'none' }} />
+        {window.ethereum && (
+          <button className="dial-btn sm" onClick={useWallet} disabled={saving} title="Fill in the address from your connected wallet">
+            <Wallet size={12} /> Use my wallet
+          </button>
+        )}
+      </div>
+      {value && !valid && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>That doesn't look like an Ethereum address — expected 0x followed by 40 characters.</div>}
       {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 5 }}>{err}</div>}
-      <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>
-        Full self-custody: <strong>your</strong> wallet sends each transaction and pays the gas — claim control, set the address, mint the name NFT. DIAL only signs an off-chain voucher and can't change it. Clicking connects your wallet.
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        <button className="dial-btn sm" onClick={() => { setOpen(false); setValue(current); setErr(null); }} disabled={saving}>Cancel</button>
-        <button className="dial-btn sm" onClick={save} disabled={!valid || saving}>
-          {saving ? <><Spinner size={12} /> Saving</> : <>{current ? 'Update' : 'Add'} (DIAL)</>}
-        </button>
-        <button className="dial-btn primary sm" onClick={saveSigned} disabled={!valid || saving}>
-          {saving ? <><Spinner size={12} stroke="#fff" /> On-chain…</> : <><Shield size={12} stroke="#fff" /> Set on-chain (you pay gas)</>}
-        </button>
+
+      {progress ? <OnchainProgress p={progress} /> : (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="dial-btn primary sm" onClick={saveSigned} disabled={!valid || saving} title="Your wallet signs and pays gas — DIAL can never change it">
+            {saving ? <><Spinner size={12} stroke="#fff" /> Working…</> : <><Shield size={12} stroke="#fff" /> Save &amp; verify on-chain</>}
+          </button>
+          <button className="dial-btn sm" onClick={save} disabled={!valid || saving} title="Saves instantly in DIAL's records — no wallet, no gas">
+            {saving ? <><Spinner size={12} /> Saving</> : 'Just save (no wallet)'}
+          </button>
+          <button className="dial-btn ghost sm" onClick={() => { setOpen(false); setValue(current); setErr(null); }} disabled={saving}>Cancel</button>
+        </div>
+      )}
+      <div className="dial-muted" style={{ fontSize: 11, marginTop: 8 }}>
+        <strong style={{ color: 'var(--dial-text)' }}>Save &amp; verify on-chain</strong> (recommended): your wallet confirms 2–3 quick transactions — claim the name, set the address, mint it as an NFT. You pay a little gas; DIAL can never change it. <strong style={{ color: 'var(--dial-text)' }}>Just save</strong> records it instantly without a wallet.
       </div>
     </div>
   );
@@ -2039,6 +2175,7 @@ function NameNftCard({ name }) {
   const [nft, setNft] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [minting, setMinting] = React.useState(false);
+  const [progress, setProgress] = React.useState(null);
   const [err, setErr] = React.useState(null);
 
   const refresh = React.useCallback(async () => {
@@ -2052,10 +2189,10 @@ function NameNftCard({ name }) {
   const mint = async () => {
     setErr(null); setMinting(true);
     try {
-      await selfCustodyOnchain(dispatch, name.name, ''); // claim (if needed) + mint; no address change
+      await selfCustodyOnchain(dispatch, name.name, '', setProgress); // claim (if needed) + mint; no address change
       await refresh();
-    } catch (e) { setErr(e.message || String(e)); }
-    finally { setMinting(false); }
+    } catch (e) { setErr(friendlyWalletError(e)); }
+    finally { setMinting(false); setProgress(null); }
   };
 
   if (loading) return null;
@@ -2066,23 +2203,24 @@ function NameNftCard({ name }) {
         <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: 'linear-gradient(135deg,#6b46ff,#2b6cff)', color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>NFT</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>DIAL name NFT</div>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>Own {name.name} as an NFT</div>
           <div className="dial-muted" style={{ fontSize: 11 }}>
             {minted
-              ? 'Minted to your wallet — this name is an ERC-721 you own on-chain.'
-              : 'Mint this name as an ERC-721 into your wallet. You pay the gas.'}
+              ? 'It’s in your wallet — you own this name on-chain, and DIAL can’t take it back.'
+              : 'Put the name in your own wallet as an NFT. Your wallet confirms 1–2 transactions and pays a small gas fee.'}
           </div>
         </div>
         {minted ? (
           <a className="dial-btn sm" href={nft.explorerBase + '/nft/' + nft.contract + '/' + nft.tokenId} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
             View NFT <External size={11} />
           </a>
-        ) : (
+        ) : !progress && (
           <button className="dial-btn primary sm" onClick={mint} disabled={minting}>
-            {minting ? <><Spinner size={12} stroke="#fff" /> Minting…</> : <><Shield size={12} stroke="#fff" /> Mint NFT (you pay gas)</>}
+            {minting ? <><Spinner size={12} stroke="#fff" /> Working…</> : <><Shield size={12} stroke="#fff" /> Mint to my wallet</>}
           </button>
         )}
       </div>
+      <OnchainProgress p={progress} />
       {err && <div style={{ color: 'var(--dial-warn)', fontSize: 11, marginTop: 8 }}>{err}</div>}
     </div>
   );
@@ -2093,9 +2231,19 @@ function NameRecords({ name }) {
   const [records, setRecords] = React.useState(name.records);
   const [dirty, setDirty] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [requesting, setRequesting] = React.useState(false);
   React.useEffect(() => { setRecords(name.records); setDirty(false); }, [name.name, JSON.stringify(name.records)]);
 
   const update = (key, val) => { setRecords({ ...records, [key]: val }); setDirty(true); };
+
+  // Ask DIAL to issue a Canton party for this name (replaces the old auto-bind
+  // at purchase). The loadOrg refresh pulls the new record back into `records`.
+  const requestCanton = async () => {
+    setRequesting(true);
+    try { await requestCantonParty(state, dispatch, name.name); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Request failed: ' + e.message } }); }
+    finally { setRequesting(false); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -2109,14 +2257,10 @@ function NameRecords({ name }) {
     }
   };
 
-  // EVM binding is out of scope for the Phase 0 PoC — only Canton shown.
-  const cantonNs = (window.CANTON_NS && window.CANTON_NS.fingerprint) || '';
   const chainMeta = {
     'canton:omnibus': {
-      label: 'Canton',
-      sub: cantonNs
-        ? `Omnibus synchronizer · party id · ns ${cantonNs.slice(0, 10)}…`
-        : 'Omnibus synchronizer · party id',
+      label: 'Canton address',
+      sub: 'Your name’s identity on the Canton Network',
       mark: 'CN',  color: '#5f6cff',
     },
   };
@@ -2148,11 +2292,33 @@ function NameRecords({ name }) {
                   <code className="dial-mono dial-muted" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>{k}</code>
                 </div>
                 <div className="dial-muted" style={{ fontSize: 11, marginBottom: 6 }}>{m.sub}</div>
-                <input value={records[k] || ''} onChange={e => update(k, e.target.value)}
-                  placeholder={`No ${m.label} address set`}
-                  style={{ width: '100%', background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
-                    color: 'var(--dial-text)', padding: '7px 10px', borderRadius: 'var(--dial-radius-sm)',
-                    fontFamily: 'var(--dial-font-mono)', fontSize: 12, outline: 'none' }} />
+                {records[k]
+                  ? <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <code className="dial-mono" style={{ display: 'block', flex: 1, background: 'var(--dial-bg-soft)',
+                          border: 'var(--dial-border-w) solid var(--dial-border)', color: 'var(--dial-text)', padding: '7px 10px',
+                          borderRadius: 'var(--dial-radius-sm)', fontSize: 12, wordBreak: 'break-all' }}>{records[k]}</code>
+                        <CopyBtn text={records[k]} dispatch={dispatch} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                        <span className="dial-pill ok"><Shield size={11} /> Only you hold the key</span>
+                        <span className="dial-muted" style={{ fontSize: 11 }}>It lives in this browser — download a copy so you don't lose it.</span>
+                        <button className="dial-btn sm" onClick={() => cantonKeyBackup(state.org)}>Back up key</button>
+                      </div>
+                    </div>
+                  : requesting
+                    ? <OnchainProgress p={{ label: 'Creating your key in this browser and requesting the address…', step: 0, total: 0 }} />
+                    : <div>
+                        <div className="dial-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
+                          This name doesn't have a Canton address yet. Get one in a few seconds — free, no wallet needed.
+                        </div>
+                        <button className="dial-btn primary sm" onClick={requestCanton}>
+                          <Shield size={12} stroke="#fff" /> Get Canton address
+                        </button>
+                        <div className="dial-muted" style={{ fontSize: 11, marginTop: 6 }}>
+                          A key is created in your browser and stays there — DIAL only receives the public half, so only you control the address.
+                        </div>
+                      </div>}
               </div>
             </div>
           ))}
@@ -2736,7 +2902,7 @@ function ScreenPublic() {
     let cancelled = false;
     setLoading(true); setErr(null);
     loadPublic(name).then(p => { if (!cancelled) { setPage(p); setLoading(false); } })
-      .catch(e => { if (!cancelled) { setErr(e.message); setLoading(false); } });
+      .catch(e => { if (!cancelled) { setErr(e); setLoading(false); } });
     return () => { cancelled = true; };
   }, [name]);
 
@@ -2748,12 +2914,15 @@ function ScreenPublic() {
 
   if (loading) return <div style={{ padding: 48, fontFamily: PUB.mono, color: PUB.muted, fontSize: 13 }}>Loading…</div>;
   if (err || !page) {
+    const isPrivate = !!(err && err.response && err.response.private);
     return (
       <div style={{ maxWidth: 980, margin: '0 auto', padding: '24px 24px 70px', fontFamily: PUB.sans, color: PUB.ink }}>
         <button onClick={back} style={pubBackBtn()}>← Back</button>
         <div style={{ background: PUB.card, border: '1px solid ' + PUB.hair, borderRadius: 20, padding: 40, textAlign: 'center' }}>
-          <div style={{ fontWeight: 700, fontSize: 20 }}>Nothing here yet.</div>
-          <div style={{ color: PUB.muted, fontSize: 14, marginTop: 6 }}>{name} doesn't have a public page.</div>
+          <div style={{ fontWeight: 700, fontSize: 20 }}>{isPrivate ? 'This page is private.' : 'Nothing here yet.'}</div>
+          <div style={{ color: PUB.muted, fontSize: 14, marginTop: 6 }}>
+            {isPrivate ? `The owner of ${name} has set this page to private.` : `${name} doesn't have a public page.`}
+          </div>
         </div>
       </div>
     );
@@ -3012,12 +3181,28 @@ function ScreenAdmin() {
   const [loginBusy, setLoginBusy] = React.useState(false);
   const [error, setError] = React.useState(null);
 
+  const [refreshing, setRefreshing] = React.useState(false);
+  const refresh = React.useCallback(async (manual) => {
+    if (manual) setRefreshing(true);
+    try { const list = await loadAdminUsers(); setUsers(list); }
+    catch (e) {
+      if (/auth|401/i.test(e.message)) { adminLogout(); setAuthed(false); }
+      else if (manual) dispatch({ type: 'toast', toast: { kind: 'info', text: 'Refresh failed: ' + e.message } });
+      setUsers(u => u === null ? [] : u); // first load failed → show the empty state, keep any existing list
+    }
+    finally { if (manual) setRefreshing(false); }
+  }, []);
+
+  // Load on entry, then keep the list current: refetch when the tab regains
+  // focus (e.g. after a user signs up in another window) and poll lightly so
+  // new signups appear without leaving the screen.
   React.useEffect(() => {
     if (!authed) return;
-    let c = false;
-    loadAdminUsers().then(list => { if (!c) setUsers(list); })
-      .catch(e => { if (!c) { if (/auth|401/i.test(e.message)) { adminLogout(); setAuthed(false); } setUsers([]); } });
-    return () => { c = true; };
+    refresh();
+    const onFocus = () => refresh();
+    const t = setInterval(() => { if (!document.hidden) refresh(); }, 20000);
+    window.addEventListener('focus', onFocus);
+    return () => { window.removeEventListener('focus', onFocus); clearInterval(t); };
   }, [authed]);
 
   const doLogin = async (e) => {
@@ -3074,7 +3259,12 @@ function ScreenAdmin() {
             {users.length} account{users.length === 1 ? '' : 's'} · {verifiedCount} verified. Verify an identity to grant the verified badge and discount.
           </div>
         </div>
-        <button className="dial-btn ghost sm" onClick={signOut}>Sign out</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="dial-btn sm" onClick={() => refresh(true)} disabled={refreshing}>
+            {refreshing ? <Spinner size={12} /> : <Refresh size={12} />} Refresh
+          </button>
+          <button className="dial-btn ghost sm" onClick={signOut}>Sign out</button>
+        </div>
       </div>
       <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
         {users.map((user, i) => (

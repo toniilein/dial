@@ -177,7 +177,8 @@ export function getByWallet(walletAddress: string): User | null {
   return (db.prepare(`SELECT * FROM users WHERE wallet_address = ? COLLATE NOCASE`).get(walletAddress) as User) ?? null;
 }
 
-function insert(u: Omit<User, 'created_at' | 'verified' | 'verified_at' | 'addr_line1' | 'addr_city' | 'addr_country'>
+function insert(u: Omit<User, 'created_at' | 'verified' | 'verified_at' | 'addr_line1' | 'addr_city' | 'addr_country'
+    | 'wallet_address' | 'wallet_name' | 'wallet_avatar' | 'wallet_linked_at'>
   & Partial<Pick<User, 'addr_line1' | 'addr_city' | 'addr_country'>>): User {
   const row: User = {
     ...u, verified: 0, verified_at: null,

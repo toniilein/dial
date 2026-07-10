@@ -46,6 +46,9 @@ function seedIfEmpty() {
   {
     const att = idh.verify('0xalice123', 'consumer');
     registrar.register({ name: 'david.dial', owner_address: '0xalice123', duration_years: 1, attestation_hash: att.hash });
+    // Names default to a private page; the flagship demo page is published so
+    // the public "address page" showcase works out of the box.
+    registry.setPagePublic('0xalice123', 'david.dial', true);
     resolver.setAddr('0xalice123', 'david.dial', 'canton:omnibus', canton.partyFor('david.dial'));
     // Real self-custodied EVM address — the wallet that claimed david.dial on
     // Sepolia (controllerOf + name-NFT holder). Kept lowercase so the off-chain
@@ -464,13 +467,11 @@ app.post('/v1/registrar/register', (req, res) => {
       duration_years,
       attestation_hash,
     });
-    // Auto-bind the DIAL Canton party id so the user sees one as part of
-    // the registration receipt — they no longer have to set it manually.
-    const cantonParty = canton.partyFor(issued.parsed.name);
-    resolver.setAddr(c, issued.parsed.name, 'canton:omnibus', cantonParty);
+    // A Canton party is no longer bound at registration. The owner requests one
+    // on demand from the name's On-chain tab (POST /v1/resolver/:name/canton/request),
+    // the same way an EVM address is added — a name isn't tied to any chain until asked.
     res.json({
       namespace: issued.namespace,
-      canton_party: cantonParty,
       payment,
       pricing: q,
     });
@@ -691,7 +692,52 @@ app.get('/v1/resolver/:name', (req, res) => {
     addresses: resolver.getAddresses(name),
     texts: resolver.getTexts(name),        // social links + other text records
     attestation_hash: ns.attestation_hash, // §3.4 DIAL-signed attestation reference
+    page_public: registry.isPagePublic(name), // public-page visibility
   });
+});
+
+// Toggle a name's public-page visibility (owner-only).
+app.post('/v1/names/:name/visibility', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const isPublic = req.body?.public;
+  if (typeof isPublic !== 'boolean') return res.status(400).json({ error: 'public (boolean) required' });
+  try {
+    const name = req.params.name.toLowerCase();
+    registry.setPagePublic(c, name, isPublic);
+    res.json({ name, page_public: isPublic });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
+});
+
+// Request a NON-CUSTODIAL Canton party for a name (owner-only). The keypair is
+// generated in the user's browser — DIAL only ever receives the PUBLIC key plus
+// a signature over `DIAL-canton-bind:<name>`. We verify that signature (proving
+// the caller holds the private key), derive the party id from the public key's
+// fingerprint, and bind it. The private key never leaves the user's device, so
+// the party is genuinely self-custodied.
+app.post('/v1/resolver/:name/canton/request', (req, res) => {
+  const c = requireCaller(req, res);
+  if (!c) return;
+  const name = req.params.name.toLowerCase();
+  const publicKeyHex = String(req.body?.public_key ?? '');
+  const signatureHex = String(req.body?.signature ?? '');
+  if (!/^[0-9a-fA-F]+$/.test(publicKeyHex)) return res.status(400).json({ error: 'public_key (hex) required' });
+  if (!/^[0-9a-fA-F]+$/.test(signatureHex)) return res.status(400).json({ error: 'signature (hex) required' });
+  try {
+    // Ownership first (setAddr enforces it too, but fail fast before crypto).
+    const owner = registry.ownerOf(name);
+    if (!owner) return res.status(404).json({ error: 'namespace not found' });
+    if (owner.toLowerCase() !== c) return res.status(403).json({ error: 'not owner' });
+    const { party, fingerprint } = canton.verifyAndDeriveParty(name, publicKeyHex, signatureHex);
+    const rec = resolver.setAddr(c, name, 'canton:omnibus', party);
+    res.json({ party, fingerprint, custody: 'self', record: rec });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(msg === 'not owner' ? 403 : (msg === 'namespace not found' ? 404 : 400)).json({ error: msg });
+  }
 });
 
 // 1.5 / 2.5 / 2.8 — edit records
@@ -938,6 +984,17 @@ app.get('/v1/public/:name', (req, res) => {
   const page = receptionist.publicPage(name);
   if (!page) return res.status(404).json({ error: 'not found' });
   const owner = registry.ownerOf(name);
+
+  // Visibility gate — a private page is only returned to its owner (so they can
+  // still preview it); everyone else gets a 403 the UI renders as "private".
+  const isPublic = registry.isPagePublic(name);
+  if (!isPublic) {
+    const c = caller(req);
+    if (!c || !owner || c.toLowerCase() !== owner.toLowerCase()) {
+      return res.status(403).json({ error: 'This page is private.', private: true });
+    }
+  }
+
   const ownerUser = owner ? authSvc.getByAddress(owner) : null;
 
   // Latest-posts module: attach the name's curated X / LinkedIn post embeds.
@@ -949,7 +1006,7 @@ app.get('/v1/public/:name', (req, res) => {
     .filter(m => m.key !== 'signals' || showEmbeds)
     .map(m => m.key === 'signals' ? { ...m, embeds } : m);
 
-  res.json({ ...page, modes: withEmbeds, owner_verified: !!(ownerUser && ownerUser.verified) });
+  res.json({ ...page, modes: withEmbeds, owner_verified: !!(ownerUser && ownerUser.verified), page_public: isPublic });
 });
 
 // Public: a name's social post embeds (X handle + LinkedIn embed URLs). Same

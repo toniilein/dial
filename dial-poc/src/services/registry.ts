@@ -18,6 +18,20 @@ export function ownerOf(name: string): string | null {
   return row?.owner_address ?? null;
 }
 
+// Public-page visibility. Absent/1 → public (default); 0 → private.
+export function isPagePublic(name: string): boolean {
+  const row = db.prepare(`SELECT page_public FROM namespaces WHERE name = ?`).get(name) as { page_public: number } | undefined;
+  return row ? row.page_public !== 0 : false;
+}
+
+// Owner-gated toggle for the name's public page visibility.
+export function setPagePublic(caller: string, name: string, isPublic: boolean): void {
+  const owner = ownerOf(name);
+  if (!owner) throw new Error('namespace not found');
+  if (owner.toLowerCase() !== caller.toLowerCase()) throw new Error('not owner');
+  db.prepare(`UPDATE namespaces SET page_public = ? WHERE name = ?`).run(isPublic ? 1 : 0, name);
+}
+
 export function resolverOf(name: string): string | null {
   const row = db.prepare(`SELECT resolver_id FROM namespaces WHERE name = ?`).get(name) as { resolver_id: string } | undefined;
   return row?.resolver_id ?? null;
@@ -72,9 +86,11 @@ export function register(args: {
     registered_at: now,
     attestation_hash: args.attestation_hash,
   };
+  // New names default to a private page (page_public = 0) — the owner turns
+  // sharing on from the Profile tab when they're ready to publish.
   db.prepare(`
-    INSERT INTO namespaces (name, owner_address, resolver_id, expires_at, registered_at, attestation_hash)
-    VALUES (@name, @owner_address, @resolver_id, @expires_at, @registered_at, @attestation_hash)
+    INSERT INTO namespaces (name, owner_address, resolver_id, expires_at, registered_at, attestation_hash, page_public)
+    VALUES (@name, @owner_address, @resolver_id, @expires_at, @registered_at, @attestation_hash, 0)
   `).run(ns);
   bus.publish({ type: 'registry.changed', name: ns.name, op: 'register' });
   return ns;
