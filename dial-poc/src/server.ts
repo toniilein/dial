@@ -1014,14 +1014,11 @@ app.get('/v1/public/:name', (req, res) => {
   if (!page) return res.status(404).json({ error: 'not found' });
   const owner = registry.ownerOf(name);
 
-  // Visibility gate — a private page is only returned to its owner (so they can
-  // still preview it); everyone else gets a 403 the UI renders as "private".
+  // Visibility gate — a hidden page is hidden for everyone, the owner included
+  // (no owner preview). The UI renders the 403 as "This page is private."
   const isPublic = registry.isPagePublic(name);
   if (!isPublic) {
-    const c = caller(req);
-    if (!c || !owner || c.toLowerCase() !== owner.toLowerCase()) {
-      return res.status(403).json({ error: 'This page is private.', private: true });
-    }
+    return res.status(403).json({ error: 'This page is private.', private: true });
   }
 
   const ownerUser = owner ? authSvc.getByAddress(owner) : null;
