@@ -147,7 +147,7 @@ app.use((req, res, next) => {
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://platform.twitter.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: https:",
+    "img-src 'self' data: blob: https:", // blob: for the canvas image-resize used by picture/logo upload
     "connect-src 'self' https://cdn.syndication.twimg.com",
     "frame-src https://platform.twitter.com https://syndication.twitter.com https://www.linkedin.com",
     "object-src 'none'",
