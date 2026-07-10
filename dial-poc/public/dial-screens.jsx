@@ -2654,7 +2654,7 @@ function DomainNames({ domain }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 150px', padding: '10px 16px',
             borderBottom: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface-2)',
             fontSize: 11, letterSpacing: '0.04em', color: 'var(--dial-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-            <div>Name</div><div>Owner</div><div>Canton id</div><div></div>
+            <div>Name</div><div>Owner</div><div>On-chain identity</div><div></div>
           </div>
           {shown.map((s, i) => (
             <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 150px',
@@ -2669,7 +2669,26 @@ function DomainNames({ domain }) {
                 {s.name}
               </button>
               <div className="dial-muted" style={{ fontSize: 12 }}>{s.owner || 'unassigned'}</div>
-              <code className="dial-mono" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.records['canton:omnibus'] || '—'}</code>
+              {/* One chip per associated chain — full value in the tooltip. */}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                {s.records['canton:omnibus'] && (
+                  <span className="dial-mono" title={s.records['canton:omnibus']}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700,
+                      border: '1px solid #5f6cff', color: '#5f6cff', borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap' }}>
+                    CN · Canton
+                  </span>
+                )}
+                {s.records['eip155:1'] && (
+                  <span className="dial-mono" title={s.records['eip155:1']}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700,
+                      border: '1px solid #627eea', color: '#627eea', borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap' }}>
+                    EVM · {s.records['eip155:1'].slice(0, 6)}…{s.records['eip155:1'].slice(-4)}
+                  </span>
+                )}
+                {!s.records['canton:omnibus'] && !s.records['eip155:1'] && (
+                  <span className="dial-muted" style={{ fontSize: 12 }}>Not associated</span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                 <button className="dial-btn sm"
                   onClick={() => dispatch({ type: 'modal', modal: { kind: 'associate-name', name: s.name } })}>
