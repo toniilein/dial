@@ -450,6 +450,57 @@ function AssociateNameModal() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Release issued-name confirmation — the ✕ on the issued-names table routes
+// here so a name is never released by an accidental click.
+// ─────────────────────────────────────────────────────────────
+function ReleaseIssuedNameModal() {
+  const { state, dispatch } = useDial();
+  const m = state.modal;
+  const [working, setWorking] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  const close = () => dispatch({ type: 'modal', modal: null });
+  const run = async () => {
+    setError(null); setWorking(true);
+    try {
+      await releaseDomainName(state, dispatch, m.parent, m.name);
+      dispatch({ type: 'modal', modal: null });
+    } catch (e) {
+      setError(e.message);
+      setWorking(false);
+    }
+  };
+  return (
+    <DialModalFrame title={`Release ${m.name}?`} eyebrow="Confirm release" onClose={close}
+      foot={
+        <>
+          <button className="dial-btn" onClick={close} disabled={working} autoFocus>Cancel</button>
+          <button className="dial-btn danger" onClick={run} disabled={working}>
+            {working ? <><_DSP size={14} /> Releasing…</> : <>Release {m.name}</>}
+          </button>
+        </>
+      }>
+      <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)',
+        borderRadius: 'var(--dial-radius)', padding: 14, display: 'flex', gap: 12 }}>
+        <_DSH size={20} stroke="var(--dial-accent)" style={{ flexShrink: 0, marginTop: 2 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+            This removes <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{m.name}</code> from your domain.
+          </div>
+          <div className="dial-muted" style={{ fontSize: 12.5 }}>
+            Its Canton id and any linked wallet addresses stop resolving. The label becomes available again under <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>{m.parent}</code> and you can re-issue it at any time.
+          </div>
+        </div>
+      </div>
+
+      {error && <div style={{ background: 'var(--dial-accent-bg)', border: 'var(--dial-border-w) solid var(--dial-accent)', color: 'var(--dial-accent)',
+        padding: '8px 12px', borderRadius: 'var(--dial-radius-sm)', marginTop: 14, fontSize: 12 }}>
+        Error: {error}
+      </div>}
+    </DialModalFrame>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Release corporate domain confirmation
 // ─────────────────────────────────────────────────────────────
 function ReleaseDomainModal() {
@@ -506,5 +557,6 @@ function ReleaseDomainModal() {
 window.RegisterDomainFlow = RegisterDomainFlow;
 window.IssueNameModal     = IssueNameModal;
 window.ReleaseDomainModal = ReleaseDomainModal;
+window.ReleaseIssuedNameModal = ReleaseIssuedNameModal;
 window.AssociateNameModal = AssociateNameModal;
 window.AssociateAddresses = AssociateAddresses;

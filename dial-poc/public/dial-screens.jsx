@@ -2717,7 +2717,7 @@ function DomainNames({ domain }) {
                   textDecorationColor: 'var(--dial-border)', textUnderlineOffset: 3 }}>
                 {s.name}
               </button>
-              <div className="dial-muted" style={{ fontSize: 12 }}>{s.owner || 'unassigned'}</div>
+              <OwnerCell name={s} />
               {/* One chip per associated chain — full value in the tooltip. */}
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                 {s.records['canton:omnibus'] && (
@@ -2744,7 +2744,7 @@ function DomainNames({ domain }) {
                   <Chain size={14} />
                 </button>
                 <button className="dial-iconbtn" title="Release"
-                  onClick={() => releaseDomainName(state, dispatch, domain.domain, s.name)}>
+                  onClick={() => dispatch({ type: 'modal', modal: { kind: 'release-issued-name', name: s.name, parent: domain.domain } })}>
                   <X size={14} />
                 </button>
               </div>
@@ -2755,6 +2755,45 @@ function DomainNames({ domain }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Inline owner/team editor for an issued-name row — click the owner to change
+// it (same text.owner record the edit page's owner pill writes).
+function OwnerCell({ name }) {
+  const { state, dispatch } = useDial();
+  const current = name.owner && name.owner !== 'unassigned' ? name.owner : '';
+  const [editing, setEditing] = React.useState(false);
+  const [val, setVal] = React.useState(current);
+  const [busy, setBusy] = React.useState(false);
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await saveNameOwner(state, dispatch, name.name, val); setEditing(false); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setBusy(false); }
+  };
+
+  if (!editing) {
+    return (
+      <button className="dial-muted" title="Change owner / team"
+        onClick={() => { setVal(current); setEditing(true); }}
+        style={{ fontSize: 12, border: 0, background: 'transparent', padding: 0, textAlign: 'left',
+          cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, font: 'inherit', color: 'var(--dial-muted)' }}>
+        {current || 'unassigned'} <Edit size={11} stroke="var(--dial-muted)" />
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input autoFocus value={val} maxLength={40} placeholder="finance-ops"
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+        style={{ width: 110, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+          color: 'var(--dial-text)', padding: '4px 8px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12, outline: 'none' }} />
+      <button className="dial-btn sm" onClick={save} disabled={busy} style={{ padding: '2px 8px', fontSize: 11 }}>{busy ? '…' : 'Save'}</button>
     </div>
   );
 }

@@ -1762,6 +1762,7 @@ function DialModals() {
   if (state.modal.kind === 'issue-name')      return <IssueNameModal />;
   if (state.modal.kind === 'associate-name')  return <AssociateNameModal />;
   if (state.modal.kind === 'release-domain')  return <ReleaseDomainModal />;
+  if (state.modal.kind === 'release-issued-name') return <ReleaseIssuedNameModal />;
   if (state.modal.kind === 'checkout')        return <CheckoutFlow />;
   return null;
 }
