@@ -1003,6 +1003,13 @@ app.get('/v1/chains/:chain/:name', (req, res) => {
 // active profile modules.
 app.get('/v1/public/:name', (req, res) => {
   const name = req.params.name.toLowerCase();
+  // Names under a corporate domain are functional identities, not profiles —
+  // they have no public profile page. Resolution stays available to
+  // counterparties via GET /v1/resolver/:name.
+  const tld = name.split('.').pop() ?? '';
+  if (domainsSvc.get(tld)) {
+    return res.status(404).json({ error: 'corporate names have no public profile page' });
+  }
   const page = receptionist.publicPage(name);
   if (!page) return res.status(404).json({ error: 'not found' });
   const owner = registry.ownerOf(name);

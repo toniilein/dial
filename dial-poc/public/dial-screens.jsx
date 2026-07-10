@@ -1236,9 +1236,13 @@ function ScreenNameDetail() {
               : <span className="dial-pill"><Calendar size={11} /> Expires {name.expires}</span>}
           </div>
         </div>
-        <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
-          <Globe size={14} /> View page
-        </button>
+        {/* Corporate subnames have no public profile page — counterparties
+            resolve them via the resolver API instead. */}
+        {!isCorporateSub && (
+          <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
+            <Globe size={14} /> View page
+          </button>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
