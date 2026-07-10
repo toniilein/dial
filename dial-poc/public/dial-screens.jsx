@@ -2651,13 +2651,13 @@ function DomainNames({ domain }) {
         </div>
       ) : (
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 150px', padding: '10px 16px',
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 90px', padding: '10px 16px',
             borderBottom: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface-2)',
             fontSize: 11, letterSpacing: '0.04em', color: 'var(--dial-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
             <div>Name</div><div>Owner</div><div>On-chain identity</div><div></div>
           </div>
           {shown.map((s, i) => (
-            <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 150px',
+            <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 90px',
               padding: '12px 16px', alignItems: 'center', fontSize: 13,
               borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
               {/* Clicking the name opens its edit (detail) page. */}
@@ -2689,10 +2689,10 @@ function DomainNames({ domain }) {
                   <span className="dial-muted" style={{ fontSize: 12 }}>Not associated</span>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                <button className="dial-btn sm"
+              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
+                <button className="dial-iconbtn" title="Associate · Canton / Ethereum"
                   onClick={() => dispatch({ type: 'modal', modal: { kind: 'associate-name', name: s.name } })}>
-                  <Chain size={12} /> Associate
+                  <Chain size={14} />
                 </button>
                 <button className="dial-iconbtn" title="Release"
                   onClick={() => releaseDomainName(state, dispatch, domain.domain, s.name)}>
