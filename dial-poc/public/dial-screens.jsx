@@ -312,7 +312,7 @@ function ScreenHome() {
   return (
     <div className="dial-section" style={{ paddingTop: isAcme ? 40 : 56 }}>
       <div style={{ textAlign: 'center', marginBottom: 28 }}>
-        <span className="dial-eyebrow accent">A name for every chain · Phase 0</span>
+        <span className="dial-eyebrow accent">A name for every chain</span>
         <h1 className="dial-h1" style={{ fontSize: 44, maxWidth: 720, margin: '4px auto 14px' }}>
           {mode === 'domain'
             ? <>Your <span style={{ color: 'var(--dial-accent)' }}>corporate domain.</span> Your namespace.</>
@@ -321,7 +321,7 @@ function ScreenHome() {
         <p className="dial-muted" style={{ maxWidth: 560, margin: '0 auto', fontSize: 15 }}>
           {mode === 'domain'
             ? <>Register a verifiable corporate TLD — like <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>.acme</code> — and issue an unlimited number of names under it for teams, services, and vaults.</>
-            : <>Register a DIAL name — like <code className="dial-mono" style={{ color: 'var(--dial-text)' }}>david.dial</code> — and map it to your Canton party and EVM address. Counterparties send to the name. Identity verified through Pairpoint.</>}
+            : <>Register a DIAL name and map it to your Canton party and EVM address. Counterparties send to the name. Identity verified through Pairpoint.</>}
         </p>
       </div>
 
