@@ -1225,7 +1225,11 @@ function ScreenNameDetail() {
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
             <span className="dial-pill ok"><CheckCircle size={11} /> Active</span>
             <span className="dial-pill">Owner · {state.identity[state.org].name.split(' ')[0]}</span>
-            <span className="dial-pill"><Calendar size={11} /> Expires {name.expires}</span>
+            {/* A corporate subname has no lifecycle of its own — it lives and
+                renews with the company's domain, so no expiry is shown. */}
+            {isCorporateSub
+              ? <span className="dial-pill"><Building size={11} /> Part of {name.parentDomain}</span>
+              : <span className="dial-pill"><Calendar size={11} /> Expires {name.expires}</span>}
           </div>
         </div>
         <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'public', name: name.name, from: 'name' } })}>
