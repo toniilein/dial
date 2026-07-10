@@ -29,18 +29,12 @@ export type User = {
 };
 
 // Admin panel — gated by a username + password (its own login, independent of
-// user accounts and reachable when logged out). Override the defaults with
-// ADMIN_USERNAME / ADMIN_PASSWORD env vars in production (the repo defaults are
-// public). A successful login mints a short-lived signed admin token.
-// Admin credentials come from the environment only — never hardcode a working
-// password in a public repo. If ADMIN_PASSWORD is unset, admin login is
-// disabled (fail closed) rather than falling back to a shipped default.
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+// user accounts and reachable when logged out). The repo ships default demo
+// credentials for the PoC; override them with ADMIN_USERNAME / ADMIN_PASSWORD
+// env vars for any real deploy (the shipped defaults are public in git).
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'lionscraft';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Lionscraft84!';
 const ADMIN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
-if (!ADMIN_PASSWORD) {
-  console.warn('[auth] ADMIN_PASSWORD not set — admin login is disabled. Set ADMIN_USERNAME / ADMIN_PASSWORD to enable it.');
-}
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a), bb = Buffer.from(b);
@@ -48,7 +42,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 export function adminConfigured(): boolean { return !!ADMIN_PASSWORD; }
 export function adminLogin(username: string, password: string): string | null {
-  if (!ADMIN_PASSWORD) return null; // fail closed when unconfigured
+  if (!ADMIN_PASSWORD) return null; // fail closed only if explicitly blanked
   if (!safeEqual(username || '', ADMIN_USERNAME) || !safeEqual(password || '', ADMIN_PASSWORD)) return null;
   const body = Buffer.from(JSON.stringify({ admin: true, exp: Date.now() + ADMIN_TTL_MS })).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update('admin:' + body).digest('base64url');
