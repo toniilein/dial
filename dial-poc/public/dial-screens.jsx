@@ -1186,6 +1186,27 @@ function ScreenNameDetail() {
     return <div className="dial-section"><div className="dial-card" style={{ padding: 24 }}>Name not found.</div></div>;
   }
 
+  // Corporate-issued subnames (finance.acme, …) are functional on-chain
+  // identities, not personal profiles — they show only their addresses and
+  // settings, not the Profile / Modules / Receptionist a consumer name carries.
+  const isCorporateSub = !!name.parentDomain;
+  const tabDefs = (isCorporateSub
+    ? [
+        ['records',  'On-chain identity', Object.keys(name.records).length],
+        ['settings', 'Settings',          null],
+      ]
+    : [
+        ['profile',      'Profile',       LINK_PLATFORMS.filter(p => (name.text || {})[p.key]).length || null],
+        ['modes',        'Modules',       null],
+        ['receptionist', 'Receptionist',  null],
+        ['records',      'Chain records', Object.keys(name.records).length],
+        isEnterprise && ['subnames', 'Subnames', (name.subnames || []).length],
+        ['settings',     'Settings',      null],
+      ]).filter(Boolean);
+  // The `tab` state may hold a value not valid for this name (e.g. after
+  // navigating from a consumer name) — fall back to the first available tab.
+  const activeTab = tabDefs.some(t => t[0] === tab) ? tab : tabDefs[0][0];
+
   return (
     <div className="dial-section wide" style={{ maxWidth: 1100 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
@@ -1213,23 +1234,16 @@ function ScreenNameDetail() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
-        {[
-          ['profile',      'Profile',       LINK_PLATFORMS.filter(p => (name.text || {})[p.key]).length || null],
-          ['modes',        'Modules',       null],
-          ['receptionist', 'Receptionist',  null],
-          ['records',      'Chain records', Object.keys(name.records).length],
-          isEnterprise && ['subnames', 'Subnames', (name.subnames || []).length],
-          ['settings',     'Settings',      null],
-        ].filter(Boolean).map(([k, label, count]) => (
+        {tabDefs.map(([k, label, count]) => (
           <button key={k}
             onClick={() => setTab(k)}
             style={{
               border: 0, background: 'transparent',
               padding: '10px 14px',
               fontSize: 13,
-              borderBottom: '2px solid ' + (tab === k ? 'var(--dial-accent)' : 'transparent'),
-              color: tab === k ? 'var(--dial-text)' : 'var(--dial-muted)',
-              fontWeight: tab === k ? 600 : 500,
+              borderBottom: '2px solid ' + (activeTab === k ? 'var(--dial-accent)' : 'transparent'),
+              color: activeTab === k ? 'var(--dial-text)' : 'var(--dial-muted)',
+              fontWeight: activeTab === k ? 600 : 500,
               marginBottom: -1,
               cursor: 'pointer',
             }}>
@@ -1238,12 +1252,12 @@ function ScreenNameDetail() {
         ))}
       </div>
 
-      {tab === 'records'      && <NameRecords name={name} />}
-      {tab === 'profile'      && <NameProfile name={name} />}
-      {tab === 'modes'        && <NameModes name={name} />}
-      {tab === 'receptionist' && <NameReceptionist name={name} />}
-      {tab === 'subnames'     && <NameSubnames name={name} />}
-      {tab === 'settings'     && <NameSettings name={name} />}
+      {activeTab === 'records'      && <NameRecords name={name} />}
+      {activeTab === 'profile'      && <NameProfile name={name} />}
+      {activeTab === 'modes'        && <NameModes name={name} />}
+      {activeTab === 'receptionist' && <NameReceptionist name={name} />}
+      {activeTab === 'subnames'     && <NameSubnames name={name} />}
+      {activeTab === 'settings'     && <NameSettings name={name} />}
     </div>
   );
 }
