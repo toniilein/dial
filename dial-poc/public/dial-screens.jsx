@@ -1222,9 +1222,13 @@ function ScreenNameDetail() {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="dial-mono" style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }}>{name.name}</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span className="dial-pill ok"><CheckCircle size={11} /> Active</span>
-            <span className="dial-pill">Owner · {state.identity[state.org].name.split(' ')[0]}</span>
+            {/* Corporate subnames carry an editable owner/team; consumer names
+                just show the account holder. */}
+            {isCorporateSub
+              ? <OwnerEditPill name={name} />
+              : <span className="dial-pill">Owner · {state.identity[state.org].name.split(' ')[0]}</span>}
             {/* A corporate subname has no lifecycle of its own — it lives and
                 renews with the company's domain, so no expiry is shown. */}
             {isCorporateSub
@@ -1263,6 +1267,47 @@ function ScreenNameDetail() {
       {activeTab === 'subnames'     && <NameSubnames name={name} />}
       {activeTab === 'settings'     && <NameSettings name={name} />}
     </div>
+  );
+}
+
+// Editable owner/team pill for corporate subnames — click to change who in the
+// org runs this name (stored as the name's text.owner record).
+function OwnerEditPill({ name }) {
+  const { state, dispatch } = useDial();
+  const current = name.owner && name.owner !== 'unassigned' ? name.owner : '';
+  const [editing, setEditing] = React.useState(false);
+  const [val, setVal] = React.useState(current);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { setVal(current); setEditing(false); }, [name.name]);
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await saveNameOwner(state, dispatch, name.name, val); setEditing(false); }
+    catch (e) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Save failed: ' + e.message } }); }
+    finally { setBusy(false); }
+  };
+
+  if (!editing) {
+    return (
+      <button className="dial-pill" title="Change owner / team"
+        onClick={() => { setVal(current); setEditing(true); }}
+        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', background: 'transparent' }}>
+        Owner · {current || 'unassigned'} <Edit size={10} stroke="var(--dial-muted)" />
+      </button>
+    );
+  }
+  return (
+    <span className="dial-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      Owner ·
+      <input autoFocus value={val} maxLength={40} placeholder="finance-ops"
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+        style={{ border: 0, outline: 'none', background: 'transparent', color: 'var(--dial-text)',
+          font: 'inherit', width: 110, borderBottom: '1px solid var(--dial-border)' }} />
+      <button className="dial-btn sm" onClick={save} disabled={busy}
+        style={{ padding: '1px 8px', fontSize: 11 }}>{busy ? '…' : 'Save'}</button>
+    </span>
   );
 }
 

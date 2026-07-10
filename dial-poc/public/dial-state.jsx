@@ -581,11 +581,13 @@ async function loadOrg(state, dispatch, org) {
     const issuedRaw = allNames.filter(n => n.name.endsWith('.' + d.label));
     const issued = await Promise.all(issuedRaw.map(async (n) => {
       let addresses = {};
+      let texts = {};
       let attestation = n.attestation_hash;
       let pagePublic = true;
       try {
         const r = await dialApi('GET', '/v1/resolver/' + encodeURIComponent(n.name));
         addresses = r.addresses || {};
+        texts = r.texts || {};
         attestation = r.attestation_hash;
         pagePublic = r.page_public !== false;
       } catch {}
@@ -593,14 +595,14 @@ async function loadOrg(state, dispatch, org) {
         // Match the regular-name shape so ScreenNameDetail can render this
         // entry too — the Edit action navigates there.
         name: n.name,
-        owner: 'unassigned',
+        owner: texts.owner || 'unassigned',
         records: addresses,
         created: fmtDate(n.registered_at),
         registered: fmtDate(n.registered_at),
         expires: fmtDate(n.expires_at),
         expires_at: n.expires_at,
         attestation,
-        text: {},
+        text: texts,
         subnames: [],
         parentDomain: '.' + d.label,
         page_public: pagePublic,
@@ -794,12 +796,30 @@ async function issueNameUnderDomain(state, dispatch, parentDomain, label, owner,
     caller,
     body: { name: fullName, duration_years: 1, attestation_hash: attHash },
   });
+  // Persist the owner/team as a text record on the name (editable later from
+  // the name's edit page).
+  const team = (owner || '').trim();
+  if (team && team !== 'unassigned') {
+    try {
+      await dialApi('POST', '/v1/resolver/' + encodeURIComponent(fullName) + '/text/owner',
+        { caller, body: { value: team } });
+    } catch {}
+  }
   await loadOrg(state, dispatch, org);
   // The caller can keep the modal open to offer an on-chain association step
   // (Canton id / Ethereum wallet) right after the name is created.
   if (!(opts && opts.keepOpen)) dispatch({ type: 'modal', modal: null });
   dispatch({ type: 'toast', toast: { kind: 'ok', text: fullName + ' issued.' } });
   return r;
+}
+
+// Change the owner/team assigned to an issued name (stored as text.owner).
+async function saveNameOwner(state, dispatch, name, value) {
+  const caller = CALLER_ADDRESSES[state.org];
+  await dialApi('POST', '/v1/resolver/' + encodeURIComponent(name) + '/text/owner',
+    { caller, body: { value: (value || '').trim() } });
+  await loadOrg(state, dispatch, state.org);
+  dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Owner updated.' } });
 }
 
 async function releaseDomainName(state, dispatch, parentDomain, fullName) {
@@ -1086,6 +1106,7 @@ window.renewName        = renewName;
 window.releaseName      = releaseName;
 window.registerDomain   = registerDomain;
 window.issueNameUnderDomain = issueNameUnderDomain;
+window.saveNameOwner        = saveNameOwner;
 window.releaseDomainName    = releaseDomainName;
 window.updateDomainRecords  = updateDomainRecords;
 window.renewDomain          = renewDomain;
