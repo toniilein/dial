@@ -34,11 +34,12 @@ function seedIfEmpty() {
   // Demo accounts — one-click sign-in maps each to its persona's owner_address.
   const davidUser = authSvc.ensureDemoUser('david', 'David Palmer', '0xalice123',
     { line1: '12 Karlstrasse', city: '80333 Munich', country: 'Germany' });
-  authSvc.ensureDemoUser('acme', 'Acme Industries GmbH', '0xacme456',
+  const acmeUser = authSvc.ensureDemoUser('acme', 'Acme Industries GmbH', '0xacme456',
     { line1: 'Hofgartenstrasse 4', city: '80539 Munich', country: 'Germany' });
   authSvc.ensureDemoUser('alice', 'Alice Schäfer', '0xbob789',
     { line1: 'Friedrichshain 47', city: '10243 Berlin', country: 'Germany' });
   authSvc.setVerified(davidUser.id, true); // David is identity-verified for the demo
+  authSvc.setVerified(acmeUser.id, true);  // Acme is KYB-verified (owns the .acme corporate domain)
 
   // David — consumer with a .dial name, a receptionist, his real self-custodied
   // EVM address, and several messages already waiting in his inbox. (Account
@@ -131,7 +132,34 @@ function seedIfEmpty() {
 seedIfEmpty();
 
 const app = express();
-app.set('trust proxy', true); // hosted behind a proxy (Replit) — for correct protocol/host
+app.set('trust proxy', 1); // exactly one proxy hop (Replit) — don't trust arbitrary X-Forwarded-* chains
+app.disable('x-powered-by');
+
+// Security headers. The CSP is defense-in-depth: the app compiles JSX in the
+// browser with @babel/standalone, which forces 'unsafe-eval' + inline scripts,
+// so a build step is the real hardening — but the allowlist still blocks
+// unexpected external origins. Hosts: unpkg (React/Babel), Google Fonts, and
+// the X/LinkedIn embed widgets used by the Latest-posts module. All app data
+// fetches are same-origin (connect-src 'self').
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://platform.twitter.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://cdn.syndication.twimg.com",
+    "frame-src https://platform.twitter.com https://syndication.twitter.com https://www.linkedin.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'self'",
+  ].join('; '));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
 app.use(express.json({ limit: '1mb' })); // 1mb headroom for inline (data-URL) profile pictures
 app.use(express.urlencoded({ extended: true })); // Apple OAuth posts form_post
 
@@ -178,6 +206,11 @@ function requireAdminToken(req: Request, res: Response): boolean {
 // =====================================================
 // Auth — real sign-in (manual email/password, Google, Apple, demo accounts)
 // =====================================================
+// Canonical origin for building absolute URLs (OAuth redirect_uri, which must be
+// pre-registered with the provider). Prefer the configured OAUTH_BASE_URL; the
+// request Host is attacker-controllable behind a proxy, so only fall back to it
+// in dev. Token-bearing SPA redirects below avoid this entirely by staying
+// relative.
 function baseUrl(req: Request): string {
   if (process.env.OAUTH_BASE_URL) return process.env.OAUTH_BASE_URL.replace(/\/$/, '');
   return `${req.protocol}://${req.get('host')}`;
@@ -186,12 +219,14 @@ function finishLogin(res: Response, user: authSvc.User) {
   res.json({ token: authSvc.issueSession(user), user: authSvc.publicUser(user) });
 }
 // After OAuth, hand the session token back to the SPA via the URL fragment
-// (not sent to the server/logs) and let the frontend store it.
-function oauthRedirect(req: Request, res: Response, token: string) {
-  res.redirect(`${baseUrl(req)}/#auth=${encodeURIComponent(token)}`);
+// (not sent to the server/logs). The redirect is RELATIVE, so the browser
+// resolves it against the real origin it's on — a spoofed Host header can't
+// redirect the token to an attacker domain.
+function oauthRedirect(_req: Request, res: Response, token: string) {
+  res.redirect(`/#auth=${encodeURIComponent(token)}`);
 }
-function oauthError(req: Request, res: Response, msg: string) {
-  res.redirect(`${baseUrl(req)}/#auth_error=${encodeURIComponent(msg)}`);
+function oauthError(_req: Request, res: Response, msg: string) {
+  res.redirect(`/#auth_error=${encodeURIComponent(msg)}`);
 }
 
 // Per-IP throttle for credential endpoints (brute-force / stuffing / spam).
@@ -224,11 +259,12 @@ app.post('/v1/auth/login', (req, res) => {
 });
 
 // Forgot password — mint a reset link for a manual account. Always responds
-// 200 with a generic message (so we don't reveal which emails are registered);
-// the PoC has no mailer, so when an account exists the link is returned in
-// `resetUrl` for the UI to surface. In production this branch would email the
-// link instead and never return it. Toggle that off with EMAIL_RESET_LINK=true.
-const RETURN_RESET_LINK = process.env.EMAIL_RESET_LINK !== 'true';
+// 200 with a generic message (so we don't reveal which emails are registered).
+// SECURITY: returning the reset token in the HTTP response lets anyone who knows
+// an email reset that account, so it is OFF by default everywhere. Set
+// RESET_LINK_IN_RESPONSE=true only for local dev (where the UI surfaces the
+// link). A real deploy must wire a mailer to actually deliver reset links.
+const RETURN_RESET_LINK = process.env.RESET_LINK_IN_RESPONSE === 'true';
 app.post('/v1/auth/forgot', (req, res) => {
   if (authThrottled(req, res)) return;
   const reset = authSvc.requestPasswordReset(String(req.body?.email ?? ''));
@@ -280,7 +316,17 @@ app.patch('/v1/auth/me', (req, res) => {
   res.json({ user: authSvc.publicUser(updated!) });
 });
 
-app.post('/v1/auth/logout', (_req, res) => res.json({ ok: true })); // stateless: client drops the token
+// Logout revokes the token server-side (bump session_gen), so a copied token
+// stops working — not just the local copy. Demo personas are shared one-click
+// accounts, so we don't revoke those (it would sign out everyone).
+app.post('/v1/auth/logout', (req, res) => {
+  const session = caller(req) ? authSvc.verifySession(req.header('authorization')?.replace(/^Bearer\s+/i, '').trim()) : null;
+  if (session) {
+    const u = authSvc.getById(session.uid);
+    if (u && u.provider !== 'demo') authSvc.revokeSessions(u.id);
+  }
+  res.json({ ok: true });
+});
 
 // =====================================================
 // Ethereum wallet link — Sign-In-With-Ethereum (EIP-4361), DIAL-native binding
@@ -559,6 +605,13 @@ app.get('/v1/registrar/domain/available', (req, res) => {
 app.post('/v1/registrar/domain/register', (req, res) => {
   const c = requireCaller(req, res);
   if (!c) return;
+  // KYB gate — enforce server-side (the UI check is cosmetic, and attestations
+  // are self-mintable via /v1/idh/verify, so only the admin-set verified flag is
+  // a real barrier to issuing a corporate .tld).
+  const u = authSvc.getByAddress(c);
+  if (!u || !u.verified) {
+    return res.status(403).json({ error: 'your account must be verified to register a corporate domain' });
+  }
   const { label, duration_years = 1, attestation_hash = '' } = req.body ?? {};
   if (!label) return res.status(400).json({ error: 'label required' });
   try {

@@ -264,6 +264,9 @@ ensureColumn('users', 'wallet_address', 'wallet_address TEXT');
 ensureColumn('users', 'wallet_name', 'wallet_name TEXT');
 ensureColumn('users', 'wallet_avatar', 'wallet_avatar TEXT');
 ensureColumn('users', 'wallet_linked_at', 'wallet_linked_at INTEGER');
+// Session generation counter — bumped on password reset / logout-everywhere so
+// stateless bearer tokens carrying an older generation stop verifying.
+ensureColumn('users', 'session_gen', 'session_gen INTEGER NOT NULL DEFAULT 0');
 
 // EVM mirror — real on-chain writes record their transaction hash + status
 // (pending → confirmed | reverted | failed). Null for mock/Canton rows.

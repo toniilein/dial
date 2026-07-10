@@ -24,6 +24,7 @@ export type User = {
   wallet_name: string | null;      // the DIAL name bound to this wallet (DIAL-native, no ENS)
   wallet_avatar: string | null;    // the bound name's avatar (resolver text.avatar), if any
   wallet_linked_at: number | null;
+  session_gen: number;             // bumped to invalidate outstanding session tokens
   created_at: number;
 };
 
@@ -31,15 +32,23 @@ export type User = {
 // user accounts and reachable when logged out). Override the defaults with
 // ADMIN_USERNAME / ADMIN_PASSWORD env vars in production (the repo defaults are
 // public). A successful login mints a short-lived signed admin token.
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'lionscraft';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Lionscraft84!';
+// Admin credentials come from the environment only — never hardcode a working
+// password in a public repo. If ADMIN_PASSWORD is unset, admin login is
+// disabled (fail closed) rather than falling back to a shipped default.
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const ADMIN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+if (!ADMIN_PASSWORD) {
+  console.warn('[auth] ADMIN_PASSWORD not set — admin login is disabled. Set ADMIN_USERNAME / ADMIN_PASSWORD to enable it.');
+}
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a), bb = Buffer.from(b);
   return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
+export function adminConfigured(): boolean { return !!ADMIN_PASSWORD; }
 export function adminLogin(username: string, password: string): string | null {
+  if (!ADMIN_PASSWORD) return null; // fail closed when unconfigured
   if (!safeEqual(username || '', ADMIN_USERNAME) || !safeEqual(password || '', ADMIN_PASSWORD)) return null;
   const body = Buffer.from(JSON.stringify({ admin: true, exp: Date.now() + ADMIN_TTL_MS })).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update('admin:' + body).digest('base64url');
@@ -103,7 +112,7 @@ function sessionSig(body: string): string {
   return b64url(crypto.createHmac('sha256', SESSION_SECRET).update('session:' + body).digest());
 }
 export function issueSession(user: User): string {
-  const payload = { uid: user.id, addr: user.owner_address, name: user.display_name, exp: Date.now() + SESSION_TTL_MS };
+  const payload = { uid: user.id, addr: user.owner_address, name: user.display_name, gen: user.session_gen ?? 0, exp: Date.now() + SESSION_TTL_MS };
   const body = b64url(JSON.stringify(payload));
   return `${body}.${sessionSig(body)}`;
 }
@@ -115,8 +124,18 @@ export function verifySession(token: string | undefined | null): { uid: string; 
   try {
     const p = JSON.parse(b64urlDecode(body).toString());
     if (!p.exp || Date.now() > p.exp) return null;
+    // Bind the token to the user's current session generation so a password
+    // reset / logout-everywhere invalidates it (also kills tokens for a
+    // since-deleted account).
+    const u = getById(p.uid);
+    if (!u || (u.session_gen ?? 0) !== (p.gen ?? 0)) return null;
     return { uid: p.uid, addr: String(p.addr).toLowerCase(), name: p.name };
   } catch { return null; }
+}
+
+// Invalidate every outstanding session for a user (bump the generation).
+export function revokeSessions(id: string): void {
+  db.prepare(`UPDATE users SET session_gen = session_gen + 1 WHERE id = ?`).run(id);
 }
 
 // ── password reset (stateless, HMAC-signed) ──
@@ -154,7 +173,10 @@ export function resetPassword(token: string, newPassword: string): User {
   if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
     throw new Error('invalid or expired reset link');
   }
-  db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(newPassword), u.id);
+  // Set the new password AND bump session_gen in one statement so the reset
+  // revokes every outstanding session (the attacker's included).
+  db.prepare(`UPDATE users SET password_hash = ?, session_gen = session_gen + 1 WHERE id = ?`)
+    .run(hashPassword(newPassword), u.id);
   return getById(u.id)!;
 }
 
@@ -178,12 +200,13 @@ export function getByWallet(walletAddress: string): User | null {
 }
 
 function insert(u: Omit<User, 'created_at' | 'verified' | 'verified_at' | 'addr_line1' | 'addr_city' | 'addr_country'
-    | 'wallet_address' | 'wallet_name' | 'wallet_avatar' | 'wallet_linked_at'>
+    | 'wallet_address' | 'wallet_name' | 'wallet_avatar' | 'wallet_linked_at' | 'session_gen'>
   & Partial<Pick<User, 'addr_line1' | 'addr_city' | 'addr_country'>>): User {
   const row: User = {
     ...u, verified: 0, verified_at: null,
     addr_line1: u.addr_line1 ?? null, addr_city: u.addr_city ?? null, addr_country: u.addr_country ?? null,
     wallet_address: null, wallet_name: null, wallet_avatar: null, wallet_linked_at: null,
+    session_gen: 0,
     created_at: Date.now(),
   };
   db.prepare(`
