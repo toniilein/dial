@@ -1,5 +1,7 @@
 node_modules/
-# dial.db is a committed pre-seeded snapshot; only the transient sidecars are ignored.
+# dial.db is a local runtime file — the app seeds demo data from code on first
+# boot (seedIfEmpty), so it and its transient sidecars are gitignored.
+dial.db
 dial.db-journal
 dial.db-shm
 dial.db-wal

@@ -28,7 +28,7 @@ npm install
 npm start            # → http://localhost:3000
 ```
 
-The repo ships a **pre-seeded `dial.db`** (David / Acme / Alice + their profiles and inboxes), so the app starts populated. Delete it and the app regenerates the same demo data from code on first boot (`seedIfEmpty()`); its WAL/journal sidecars stay gitignored. `npm run dev` is the same with file-watch reload.
+On first boot the app **seeds demo data from code** (David / Acme / Alice + their profiles and inboxes) via `seedIfEmpty()`, so it starts populated — the local `dial.db` it writes is gitignored (delete it to reseed fresh). When Turso is configured (see below) the data comes from the shared database instead. `npm run dev` is the same with file-watch reload.
 
 To run with the **real EVM mirror**, see §5.
 
@@ -128,7 +128,7 @@ The server loads `.env` automatically via `--env-file` (already wired into `pack
 
 ## 6. Deploy to Replit (+ Google / Apple sign-in)
 
-The repo is Replit-ready: a root `.replit` runs the app from `dial-poc/`, the server binds `0.0.0.0` + reads `PORT`, and it ships a **pre-seeded `dial.db`** so it starts populated (nothing to provision). On Autoscale the filesystem is ephemeral, so live writes don't persist — every cold start returns to this snapshot.
+The repo is Replit-ready: a root `.replit` runs the app from `dial-poc/`, the server binds `0.0.0.0` + reads `PORT`, and it **seeds demo data from code on first boot** (`seedIfEmpty()`) so it starts populated (nothing to provision). On Autoscale the filesystem is ephemeral, so live writes don't persist — every cold start reseeds this demo data (or syncs from Turso when configured).
 
 **Import:** Replit → *Create → Import from GitHub* → `https://github.com/toniilein/dial`. Press **Run** for the dev webview; **Deploy → Autoscale** (preconfigured) for a stable `https://<name>.replit.app`. Update later via the Git pane → *Pull*.
 
