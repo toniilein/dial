@@ -4,8 +4,9 @@ dial.db-journal
 dial.db-shm
 dial.db-wal
 
-# Turso embedded replica (shared-DB mode) — materialized from the remote primary
+# Turso embedded replicas (shared-DB mode) — materialized from the remote primary
 dial-replica.db*
+merge-replica.db*
 *.log
 .DS_Store
 

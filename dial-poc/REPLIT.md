@@ -81,6 +81,18 @@ sqlite3 dial.db "PRAGMA wal_checkpoint(TRUNCATE);"
 turso db create dial --from-file dial.db
 ```
 
+**Merging a diverged environment's data** (e.g. Replit ran on its own local
+`dial.db` before the shared DB existed): with the secrets set, run
+
+```bash
+node scripts/merge-into-shared.mjs --source dial.db --label replit
+```
+
+It copies the source's rows into the shared DB additively — existing shared
+rows always win on conflicts, audit/chat histories are appended with fresh
+ids, rows both sides already share are skipped, and a marker makes each
+`--label` one-shot (a re-run is a no-op).
+
 Two rules when sharing: only **one** environment may run the EVM owner-relayer
 mode (`DIAL_EVM_SELF_CUSTODY=false`) — two relayers sharing
 `DEPLOYER_PRIVATE_KEY` race on the account nonce (the default self-custody
