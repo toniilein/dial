@@ -11,6 +11,8 @@ function DialModalFrame({ title, eyebrow, onClose, foot, children, wide }) {
   return (
     <div className="dial-modal-backdrop" onClick={onClose}>
       <div className={`dial-modal ${wide ? 'wide' : ''}`} onClick={e => e.stopPropagation()}>
+        {/* ≤760px: comfortable tap targets; long labels wrap instead of clipping (.dial-btn is nowrap). */}
+        <style>{'@media(max-width:760px){.dial-modal .dial-btn{min-height:44px;white-space:normal}.dial-modal .dial-btn.sm{min-height:36px}}'}</style>
         <div className="dial-modal-head">
           <div style={{ flex: 1 }}>
             {eyebrow && <div className="dial-eyebrow" style={{ marginBottom: 2 }}>{eyebrow}</div>}
@@ -148,8 +150,8 @@ function RegStepDuration({ label, duration, setDuration, price, listPrice, eligi
     <div>
       <div className="dial-card tint" style={{ padding: 14, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
         <span className="dial-pill ok"><CheckCircleIcon size={11} /> Available</span>
-        <div style={{ flex: 1 }}>
-          <div className="dial-mono" style={{ fontSize: 16, fontWeight: 600 }}>{label}.dial</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="dial-mono m-break" style={{ fontSize: 16, fontWeight: 600 }}>{label}.dial</div>
           <div className="dial-muted" style={{ fontSize: 12 }}>
             {price.tier}
             {eligibleDiscount && <span className="dial-pill ok" style={{ marginLeft: 8, fontSize: 10 }}>{price.discountPct}% verified</span>}
@@ -176,7 +178,7 @@ function RegStepDuration({ label, duration, setDuration, price, listPrice, eligi
       )}
 
       <div className="dial-field-label">Registration duration</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 18 }}>
+      <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 18 }}>
         {[1, 2, 3].map(y => (
           <button key={y} onClick={() => setDuration(y)}
             className="dial-card"
@@ -345,9 +347,9 @@ function RegStepReview({ label, duration, totalUsdc, networkFee, skipVerify, pri
       )}
       <div className="dial-card" style={{ padding: 16, marginBottom: 14 }}>
         <div className="dial-field-label">Name</div>
-        <div className="dial-mono" style={{ fontSize: 20, fontWeight: 700, marginBottom: 14 }}>{label}.dial</div>
+        <div className="dial-mono m-break" style={{ fontSize: 20, fontWeight: 700, marginBottom: 14 }}>{label}.dial</div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div>
             <div className="dial-field-label">Duration</div>
             <div style={{ fontSize: 13 }}>{duration} year{duration > 1 ? 's' : ''}</div>
@@ -406,7 +408,7 @@ function RegStepDone({ label }) {
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
           <CheckIcon size={32} stroke="var(--dial-accent)" strokeWidth={2.2} />
         </div>
-        <div className="dial-h2" style={{ fontSize: 24 }}>{label}.dial is yours.</div>
+        <div className="dial-h2 m-break" style={{ fontSize: 24 }}>{label}.dial is yours.</div>
         <div className="dial-muted" style={{ fontSize: 13, marginTop: 6, maxWidth: 380, marginLeft: 'auto', marginRight: 'auto' }}>
           We'll send a receipt to your verified email.
         </div>
@@ -470,9 +472,11 @@ function SubnameModal() {
 
       <div style={{ marginBottom: 14 }}>
         <div className="dial-field-label">Subname</div>
+        {/* ≤760px: shrink the inline ".parent" suffix so a long parent leaves typing room. */}
+        <style>{'@media(max-width:760px){.dial-modal .subname-suffix{font-size:11px;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}'}</style>
         <div className="dial-input-wrap">
           <input value={label} onChange={e => setLabel(e.target.value)} placeholder="finance" autoFocus />
-          <span className="suffix">.{m.parent}</span>
+          <span className="suffix subname-suffix">.{m.parent}</span>
         </div>
         {label && !norm.valid && <div style={{ color: 'var(--dial-warn)', fontSize: 12, marginTop: 6 }}>{norm.reason}</div>}
         {conflict && <div style={{ color: 'var(--dial-warn)', fontSize: 12, marginTop: 6 }}>A subname with this label already exists.</div>}
@@ -615,7 +619,7 @@ function EntStepBusiness() {
       </div>
 
       <div className="dial-card" style={{ padding: 16, marginBottom: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 12 }}>
+        <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 12 }}>
           <div>
             <div className="dial-field-label">Industry</div>
             <div style={{ fontSize: 13 }}>Industrial · Manufacturing</div>
@@ -744,7 +748,7 @@ function ConStepDocument({ docType, setDocType, scanned, setScanned }) {
         <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
           Choose the government-issued document you'll use to verify your identity. Pairpoint reads it via OCR + chip if supported (eMRTD).
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           {docs.map(d => (
             <button key={d.id} className="dial-card" onClick={() => setDocType(d.id)}
               style={{ padding: 16, textAlign: 'center', cursor: 'pointer', background: 'var(--dial-surface)' }}>
@@ -765,7 +769,7 @@ function ConStepDocument({ docType, setDocType, scanned, setScanned }) {
         <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
           Open the Pairpoint app on your phone and scan the QR code, then hold your {docType.replace('-', ' ')} steady in the frame.
         </div>
-        <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+        <div className="m-wrap" style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
           <QRMock />
           <div style={{ flex: 1 }}>
             <div className="dial-h3" style={{ marginBottom: 6 }}>Scan with Pairpoint</div>
@@ -851,7 +855,7 @@ function ConStepLiveness({ livenessOk, setLivenessOk, verifying, runVerify }) {
         Final step: a 3-second liveness selfie. Pairpoint matches your face to the document photo and confirms you're a live person — not a static image or video.
       </div>
 
-      <div style={{ display: 'flex', gap: 22, alignItems: 'center', marginBottom: 14 }}>
+      <div className="m-wrap" style={{ display: 'flex', gap: 22, alignItems: 'center', marginBottom: 14 }}>
         <FaceFrame status={running ? 'running' : livenessOk ? 'ok' : 'idle'} />
         <div style={{ flex: 1 }}>
           {!livenessOk && !running && <>
@@ -951,7 +955,7 @@ function EntStepCorporate() {
         <div style={{ fontSize: 15, fontWeight: 600 }}>{id.name}</div>
         <div className="dial-muted" style={{ fontSize: 12, marginBottom: 14 }}>Registered in {id.country || 'DE'}</div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div>
             <div className="dial-field-label">Register</div>
             <code className="dial-mono" style={{ fontSize: 13 }}>{id.regId || 'HRB 218447'}</code>
@@ -1009,7 +1013,7 @@ function EntStepBeneficials({ verifying, runVerify }) {
 
       <div className="dial-card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
         {owners.map((o, i) => (
-          <div key={o.name} style={{ display: 'flex', gap: 12, padding: 14, alignItems: 'center',
+          <div key={o.name} className="m-wrap" style={{ display: 'flex', gap: 12, padding: 14, alignItems: 'center',
             borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
             <div style={{ width: 36, height: 36, background: 'var(--dial-bg-soft)',
               border: 'var(--dial-border-w) solid var(--dial-border)',
@@ -1088,7 +1092,7 @@ function UserStepDone() {
         <div className="dial-field-label">Identity level</div>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>{id.level}</div>
         <div className="dial-field-label">Attestation hash</div>
-        <code className="dial-mono" style={{ fontSize: 12, padding: '8px 10px', display: 'block', borderRadius: 'var(--dial-radius-sm)',
+        <code className="dial-mono m-break" style={{ fontSize: 12, padding: '8px 10px', display: 'block', borderRadius: 'var(--dial-radius-sm)',
           background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)' }}>
           {id.fullHash || id.hash}
         </code>
@@ -1184,6 +1188,8 @@ function LoginModal() {
           <button className="dial-iconbtn" onClick={close}><XIcon size={16} /></button>
         </div>
         <div className="dial-drawer-body">
+          {/* ≤760px: comfortable tap targets for the auth controls (Show/Hide, demo accounts). */}
+          <style>{'@media(max-width:760px){.dial-drawer .dial-btn{min-height:44px}.dial-drawer .dial-btn.sm{min-height:36px}}'}</style>
           <AuthPanel onClose={close} />
         </div>
       </div>
@@ -1400,6 +1406,8 @@ function ResetPasswordModal() {
           <button className="dial-iconbtn" onClick={close}><XIcon size={16} /></button>
         </div>
         <div className="dial-drawer-body">
+          {/* ≤760px: comfortable tap targets (Show/Hide toggle). */}
+          <style>{'@media(max-width:760px){.dial-drawer .dial-btn{min-height:44px}.dial-drawer .dial-btn.sm{min-height:36px}}'}</style>
           <div className="dial-muted" style={{ fontSize: 13, marginBottom: 14 }}>
             Enter a new password for your DIAL account. The reset link expires 30 minutes after it was requested.
           </div>
@@ -1564,7 +1572,7 @@ function CheckoutReview({ items, verified, subtotal, total, discount, skipVerify
                 {item.name[0].toUpperCase()}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="dial-mono" style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
+                <div className="dial-mono m-break" style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
                 <div className="dial-muted" style={{ fontSize: 11.5 }}>{list.tier} · {item.duration_years} year{item.duration_years > 1 ? 's' : ''}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -1630,7 +1638,7 @@ function CheckoutAccount({ onDone }) {
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
+        <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
           <span className="dial-muted" style={{ fontSize: 12 }}>
             {id.verified
               ? <>{VERIFIED_DISCOUNT_PCT}% verified discount applies on the next step.</>

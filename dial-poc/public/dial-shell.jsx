@@ -8,7 +8,9 @@ const DIAL_STYLES = `
   color: var(--dial-text);
   background: var(--dial-bg);
   width: 100%; height: 100%;
-  overflow: hidden;
+  /* clip, not hidden: hidden still lets the browser scroll the container
+     when an off-screen child takes focus, panning the whole app sideways */
+  overflow: clip;
   display: flex; flex-direction: column;
   font-size: 14px;
   line-height: 1.45;
@@ -516,6 +518,101 @@ const DIAL_STYLES = `
 .dial-root.theme-mono .dial-eyebrow { font-family: var(--dial-font-mono); }
 .dial-root.theme-dark .dial-h1 { color: #fff; }
 .dial-root.theme-cream .dial-card { box-shadow: 0 1px 0 rgba(0,0,0,0.03), 0 8px 24px rgba(20,12,0,0.03); }
+
+/* ───── Mobile (≤760px) ─────
+   Desktop shell reflowed for phones: the top bar wraps into two rows
+   (brand + actions, then a full-width scrollable nav), popovers become
+   viewport-wide sheets, modals become bottom sheets, and screens opt into
+   single-column layouts via the m-* utilities below. The m-* rules are
+   !important because screens carry their layout as inline styles.
+   Keep the breakpoint in sync with DIAL_MOBILE_BP / useIsMobile(). */
+@media (max-width: 760px) {
+  .dial-topbar {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    column-gap: 8px;
+    row-gap: 0;
+  }
+  .dial-nav {
+    order: 10;
+    flex: 1 1 100%;
+    margin-left: -4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+    padding: 2px 0 4px;
+  }
+  .dial-nav::-webkit-scrollbar { display: none; }
+  .dial-nav-item { padding: 8px 10px; flex: 0 0 auto; }
+  .dial-iconbtn { width: 38px; height: 38px; }
+  .dial-avatar { width: 34px; height: 34px; font-size: 12px; }
+
+  /* Anchored popovers become sheets pinned under the two-row top bar. */
+  .dial-cart-popover, .dial-signin-popover, .dial-avatar-popover {
+    position: fixed;
+    top: 92px;
+    left: 10px; right: 10px;
+    width: auto;
+    min-width: 0;
+    max-height: calc(100dvh - 104px);
+    overflow-y: auto;
+  }
+  .dial-cart-popover::before, .dial-signin-popover::before, .dial-avatar-popover::before { display: none; }
+
+  .dial-drawer { width: 100%; max-width: 100%; border-left: 0; }
+
+  .dial-modal-backdrop { align-items: flex-end; }
+  .dial-modal, .dial-modal.wide {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 32px);
+    border-radius: var(--dial-radius-lg) var(--dial-radius-lg) 0 0;
+    border-left: 0; border-right: 0; border-bottom: 0;
+  }
+  .dial-modal-body { overflow-x: hidden; }
+  .dial-modal-foot { flex-wrap: wrap; }
+  .dial-modal-foot .dial-btn { flex: 1 1 auto; min-height: 44px; white-space: normal; }
+  .dial-steps { flex-wrap: wrap; row-gap: 6px; }
+  .dial-step .bar { display: none; }
+  .dial-btn.sm { min-height: 38px; padding: 8px 12px; }
+  .dial-input-wrap input { min-width: 0; }
+  .dial-input-wrap .suffix { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Inline 24px remove button in the basket popover — a destructive tap
+     target whose parent row navigates on click; needs real touch size. */
+  .dial-cart-popover .dial-iconbtn { width: 36px !important; height: 36px !important; }
+
+  .dial-section, .dial-section.wide { padding: 18px 14px 28px; }
+  .dial-h1 { font-size: 28px; }
+  .dial-h2 { font-size: 19px; }
+
+  .dial-toast { max-width: calc(100vw - 20px); width: max-content; }
+
+  /* Layout utilities — screens add these classNames next to their inline
+     styles; !important lets the class win over the inline declaration. */
+  .dial-root .m-grid1 { grid-template-columns: 1fr !important; }
+  .dial-root .m-grid2 { grid-template-columns: 1fr 1fr !important; }
+  .dial-root .m-stack { display: flex !important; flex-direction: column !important; align-items: stretch !important; }
+  .dial-root .m-wrap { flex-wrap: wrap !important; }
+  .dial-root .m-hide { display: none !important; }
+  .dial-root .m-full { width: 100% !important; min-width: 0 !important; max-width: 100% !important; }
+  .dial-root .m-scroll-x { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  .dial-root .m-tabs { overflow-x: auto !important; flex-wrap: nowrap !important; white-space: nowrap; scrollbar-width: none; }
+  .dial-root .m-tabs::-webkit-scrollbar { display: none; }
+  .dial-root .m-break { overflow-wrap: anywhere; word-break: break-word; }
+  .dial-root .m-pad0 { padding: 0 !important; }
+  /* In a wrapping row: claim over half the line so trailing siblings
+     (pills, buttons) wrap below and this block gets the full width. */
+  .dial-root .m-min60 { min-width: 60% !important; }
+}
+
+/* iOS Safari zooms the page when a focused control's computed font-size is
+   under 16px. Only touch devices need that floor — a narrowed desktop
+   window keeps the designed input sizes. */
+@media (max-width: 760px) and (pointer: coarse) {
+  .dial-root input, .dial-root select, .dial-root textarea { font-size: 16px !important; }
+}
 `;
 
 // Inject the stylesheet once per page.
@@ -531,7 +628,25 @@ function injectDialStyles() {
 const DialCtx = React.createContext(null);
 const useDial = () => React.useContext(DialCtx);
 
+// Mobile breakpoint — keep in sync with the @media blocks in DIAL_STYLES.
+// Screens use this for structural changes CSS can't express (reordering,
+// swapping a table for cards); pure layout changes should prefer the m-*
+// utility classes so they stay in one place.
+const DIAL_MOBILE_BP = 760;
+function useIsMobile() {
+  const [mobile, setMobile] = React.useState(() => window.matchMedia(`(max-width: ${DIAL_MOBILE_BP}px)`).matches);
+  React.useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${DIAL_MOBILE_BP}px)`);
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
+
 window.DIAL_STYLES = DIAL_STYLES;
 window.injectDialStyles = injectDialStyles;
 window.DialCtx = DialCtx;
 window.useDial = useDial;
+window.DIAL_MOBILE_BP = DIAL_MOBILE_BP;
+window.useIsMobile = useIsMobile;

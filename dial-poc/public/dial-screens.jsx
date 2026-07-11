@@ -95,10 +95,11 @@ function DialTopBar() {
 
       {loggedIn ? (
         <>
-          <button className="dial-iconbtn" title="Notifications"><Bell size={16} /></button>
+          {/* No notifications in the PoC — the bell is inert, so hide it on mobile. */}
+          <button className="dial-iconbtn m-hide" title="Notifications"><Bell size={16} /></button>
           <div ref={avatarRef} style={{ position: 'relative' }}
             onMouseEnter={openAvatar} onMouseLeave={closeAvatarSoon}>
-            <div className="dial-avatar" title={id.name} style={{ cursor: 'pointer' }}>
+            <div className="dial-avatar" title={id.name} style={{ cursor: 'pointer' }} onClick={openAvatar}>
               {id.initials || (isAcme ? 'A' : 'DP')}
             </div>
             <AvatarPopover open={avatarOpen} onClose={() => setAvatarOpen(false)} />
@@ -122,6 +123,7 @@ function DialTopBar() {
 // Stays mounted across hover open/close so any local state is preserved.
 function CartPopover({ open, onClose }) {
   const { state, dispatch } = useDial();
+  const isMobile = useIsMobile();
   const hidden = { display: 'none' };
   const items = state.cart;
   const verified = state.loggedIn && state.identity[state.org]?.verified;
@@ -176,7 +178,7 @@ function CartPopover({ open, onClose }) {
                 <div className="dial-muted" style={{ fontSize: 11 }}>{it.duration_years} year{it.duration_years > 1 ? 's' : ''}</div>
               </div>
               <div className="dial-mono" style={{ fontSize: 12, fontWeight: 600 }}>{line} USDC</div>
-              <button className="dial-iconbtn" title="Remove" style={{ width: 24, height: 24 }}
+              <button className="dial-iconbtn" title="Remove" style={isMobile ? undefined : { width: 24, height: 24 }}
                 onClick={(e) => { e.stopPropagation(); dispatch({ type: 'cart-remove', index: items.indexOf(it) }); }}>
                 <X size={12} />
               </button>
@@ -260,6 +262,7 @@ function AvatarPopover({ open, onClose }) {
 // ─────────────────────────────────────────────────────────────
 function ScreenHome() {
   const { state, dispatch } = useDial();
+  const isMobile = useIsMobile();
   const inputRef = React.useRef(null);
   const [focus, setFocus] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
@@ -313,7 +316,7 @@ function ScreenHome() {
     <div className="dial-section" style={{ paddingTop: isAcme ? 40 : 56 }}>
       <div style={{ textAlign: 'center', marginBottom: 28 }}>
         <span className="dial-eyebrow accent">A name for every chain</span>
-        <h1 className="dial-h1" style={{ fontSize: 44, maxWidth: 720, margin: '4px auto 14px' }}>
+        <h1 className="dial-h1" style={{ fontSize: isMobile ? 30 : 44, maxWidth: 720, margin: '4px auto 14px' }}>
           {mode === 'domain'
             ? <>Your <span style={{ color: 'var(--dial-accent)' }}>corporate domain.</span> Your namespace.</>
             : <>One name. <span style={{ color: 'var(--dial-accent)' }}>Every chain.</span></>}
@@ -332,7 +335,7 @@ function ScreenHome() {
               <Hash size={12} /> Find a name
             </button>
             <button className={mode === 'domain' ? 'active acme' : ''} onClick={() => { setMode('domain'); dispatch({ type: 'query', query: '' }); }}>
-              <Building size={12} /> Register a corporate domain
+              <Building size={12} /> {isMobile ? 'Corporate domain' : 'Register a corporate domain'}
             </button>
           </div>
         </div>
@@ -400,9 +403,9 @@ function ResultCard({ result }) {
   }
   if (result.kind === 'taken') {
     return (
-      <div className="dial-card" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div className="dial-card m-wrap" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
         <span className="dial-pill warn">{result.reason === 'reserved' ? 'Reserved' : 'Taken'}</span>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="dial-mono" style={{ fontSize: 17, fontWeight: 600 }}>{display}</div>
           <div className="dial-muted" style={{ fontSize: 12 }}>
             {result.reason === 'reserved'
@@ -419,9 +422,9 @@ function ResultCard({ result }) {
   const couldDiscount = !isDomain && !hasDiscount && state.loggedIn && !state.identity[state.org]?.verified;
   const couldDiscountSave = couldDiscount ? Math.round(price.usdc * VERIFIED_DISCOUNT_PCT) / 100 : 0;
   return (
-    <div className="dial-card" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+    <div className="dial-card m-wrap" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
       <span className="dial-pill ok"><CheckCircle size={11} /> Available</span>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="dial-mono" style={{ fontSize: 17, fontWeight: 600 }}>{display}</div>
         <div className="dial-muted" style={{ fontSize: 12 }}>
           {price.tier} ·{' '}
@@ -437,7 +440,7 @@ function ResultCard({ result }) {
       {isDomain ? (
         // Corporate domain registration stays as a direct flow (single SKU,
         // mandatory KYB). No cart.
-        <button className="dial-btn primary" onClick={() => {
+        <button className="dial-btn primary m-full" onClick={() => {
           if (!state.loggedIn) { dispatch({ type: 'modal', modal: { kind: 'login' } }); return; }
           const id = state.identity[state.org];
           if (!id.verified) { dispatch({ type: 'toast', toast: { kind: 'info', text: 'Your account must be verified by an admin to register a corporate domain.' } }); return; }
@@ -452,7 +455,7 @@ function ResultCard({ result }) {
         </button>
       ) : (
         // .dial names go through the cart + checkout flow (GoDaddy-style).
-        <button className="dial-btn primary" onClick={() => dispatch({ type: 'cart-add',
+        <button className="dial-btn primary m-full" onClick={() => dispatch({ type: 'cart-add',
           item: { name: result.label + '.dial', duration_years: 1 } })}>
           <Cart size={14} stroke="#fff" /> Add to cart
         </button>
@@ -528,7 +531,7 @@ function AccountDetailsCard() {
             <div className="dial-field-label">Street address</div>
             <div className="dial-input-wrap"><input style={inputStyle} value={line1} onChange={e => setLine1(e.target.value)} placeholder="e.g. 12 Karlstrasse" autoFocus /></div>
           </div>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+          <div className="m-stack" style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
             <div style={{ flex: 1 }}>
               <div className="dial-field-label">City</div>
               <div className="dial-input-wrap"><input style={inputStyle} value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. 80333 Munich" /></div>
@@ -688,6 +691,7 @@ function WalletBar({ cfg }) {
 // Hidden when no wallet is present (the On-chain page handles the install case).
 function TopWalletChip() {
   const { dispatch } = useDial();
+  const isMobile = useIsMobile();
   const eth = (typeof window !== 'undefined') ? window.ethereum : null;
   const [account, setAccount] = React.useState(null);
   const [chainId, setChainId] = React.useState(null);
@@ -750,8 +754,8 @@ function TopWalletChip() {
     dispatch({ type: 'toast', toast: { kind: 'ok', text: 'Wallet disconnected.' } });
   };
 
-  if (!connected) return <button className="dial-btn sm" onClick={connect} disabled={busy}><Wallet size={13} /> {busy ? '…' : 'Connect wallet'}</button>;
-  if (!onTarget) return <button className="dial-btn sm" onClick={() => act(() => eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }))} disabled={busy || !targetHex} title={'Switch to ' + target} style={{ borderColor: 'var(--dial-warn)', color: 'var(--dial-warn)' }}><Wallet size={13} /> Switch to {target}</button>;
+  if (!connected) return <button className="dial-btn sm" onClick={connect} disabled={busy} title="Connect wallet"><Wallet size={13} /> {busy ? '…' : (isMobile ? 'Connect' : 'Connect wallet')}</button>;
+  if (!onTarget) return <button className="dial-btn sm" onClick={() => act(() => eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetHex }] }))} disabled={busy || !targetHex} title={'Switch to ' + target} style={{ borderColor: 'var(--dial-warn)', color: 'var(--dial-warn)' }}><Wallet size={13} /> {isMobile ? 'Switch network' : 'Switch to ' + target}</button>;
 
   const item = { display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, color: 'var(--dial-text)', padding: '7px 9px', fontSize: 12.5, cursor: 'pointer', borderRadius: 'var(--dial-radius-sm)' };
   return (
@@ -876,7 +880,7 @@ function ScreenChains() {
         <h3 className="dial-h3" style={{ margin: '0 0 4px' }}>On-chain lookup</h3>
         <p className="dial-muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: '0 0 12px' }}>
           Read a name's record <strong>straight from the {cfg ? cfg.network : ''} contract</strong> — trustless, not from DIAL's database. This is what an external wallet or dApp does.</p>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="m-wrap" style={{ display: 'flex', gap: 8 }}>
           <input value={lookupName} onChange={e => setLookupName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') doLookup(); }} placeholder="david.dial"
             style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
@@ -902,7 +906,7 @@ function ScreenChains() {
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px',
                 borderTop: i ? 'var(--dial-border-w) solid var(--dial-border)' : 'none', fontSize: 12 }}>
                 <span className="dial-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.03em', fontSize: 10.5 }}>{k}</span>
-                <code className="dial-mono" style={{ fontSize: 12 }}>{v}</code>
+                <code className="dial-mono m-break" style={{ fontSize: 12 }}>{v}</code>
               </div>
             ))}
             {lookupResult.nft && (
@@ -936,9 +940,9 @@ function ScreenChains() {
       ) : (
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
           {evm.map((row, i) => (
-            <div key={row.id || i} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1.2fr 1.3fr', gap: 10, alignItems: 'center',
+            <div key={row.id || i} className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1.2fr 1.3fr', gap: 10, alignItems: 'center',
               padding: '11px 16px', borderTop: i ? 'var(--dial-border-w) solid var(--dial-border)' : 'none', fontSize: 13 }}>
-              <code className="dial-mono" style={{ fontWeight: 600 }}>{row.name}</code>
+              <code className="dial-mono m-break" style={{ fontWeight: 600 }}>{row.name}</code>
               <div>{opPill(row.op)}</div>
               <span className="dial-mono dial-muted" style={{ fontSize: 11 }}>{when(row.written_at)}</span>
               <div style={{ textAlign: 'right' }}>
@@ -963,9 +967,9 @@ function ScreenChains() {
         {canton.length === 0
           ? <div style={{ padding: 16 }}><span className="dial-muted" style={{ fontSize: 13 }}>No Canton writes yet.</span></div>
           : canton.slice(0, 12).map((row, i) => (
-            <div key={row.id || i} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1.2fr 1.3fr', gap: 10, alignItems: 'center',
+            <div key={row.id || i} className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1.2fr 1.3fr', gap: 10, alignItems: 'center',
               padding: '11px 16px', borderTop: i ? 'var(--dial-border-w) solid var(--dial-border)' : 'none', fontSize: 13 }}>
-              <code className="dial-mono" style={{ fontWeight: 600 }}>{row.name}</code>
+              <code className="dial-mono m-break" style={{ fontWeight: 600 }}>{row.name}</code>
               <div>{opPill(row.op)}</div>
               <span className="dial-mono dial-muted" style={{ fontSize: 11 }}>{when(row.written_at)}</span>
               <span className="dial-mono dial-muted" style={{ fontSize: 10, textAlign: 'right' }} title={row.dial_sig}>sig {short(row.dial_sig, 6, 4)}</span>
@@ -990,7 +994,7 @@ function ScreenDashboard() {
 
   return (
     <div className="dial-section">
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginBottom: 22 }}>
         <div>
           <span className="dial-eyebrow">{isAcme ? 'Enterprise account' : 'Personal account'}</span>
           <h1 className="dial-h2" style={{ fontSize: 26 }}>
@@ -1006,7 +1010,7 @@ function ScreenDashboard() {
                   : <span style={{ color: 'var(--dial-warn)' }}>Not verified</span>}</>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="m-wrap" style={{ display: 'flex', gap: 8 }}>
           <button className="dial-btn" onClick={() => dispatch({ type: 'route', route: { screen: 'home' } })}>
             <Search size={14} /> Search
           </button>
@@ -1025,7 +1029,7 @@ function ScreenDashboard() {
         </div>
       </div>
 
-      <div className="dial-card" style={{ padding: 16, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, background: id.verified ? 'var(--dial-surface)' : 'var(--dial-accent-bg)', borderColor: id.verified ? 'var(--dial-border)' : 'var(--dial-accent)' }}>
+      <div className="dial-card m-wrap" style={{ padding: 16, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, background: id.verified ? 'var(--dial-surface)' : 'var(--dial-accent-bg)', borderColor: id.verified ? 'var(--dial-border)' : 'var(--dial-accent)' }}>
         <Shield size={20} stroke={id.verified ? 'var(--dial-ok)' : 'var(--dial-accent)'} />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>
@@ -1083,7 +1087,7 @@ function DomainEmpty() {
   const { state, dispatch } = useDial();
   const id = state.identity[state.org];
   return (
-    <div className="dial-card" style={{ padding: 28, marginBottom: 26, display: 'flex', alignItems: 'center', gap: 18 }}>
+    <div className="dial-card m-wrap" style={{ padding: 28, marginBottom: 26, display: 'flex', alignItems: 'center', gap: 18 }}>
       <div style={{ width: 48, height: 48, borderRadius: 'var(--dial-radius)', background: 'var(--dial-accent-bg)', color: 'var(--dial-accent)',
         display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Building size={22} stroke="var(--dial-accent)" />
@@ -1106,15 +1110,17 @@ function DomainEmpty() {
 
 function DomainRow({ domain }) {
   const { dispatch } = useDial();
+  const isMobile = useIsMobile();
   return (
-    <button className="dial-card" style={{ padding: 16, display: 'grid', gridTemplateColumns: '44px 1fr auto auto auto',
+    // Mobile: a wrapping flex row (name fills line 1; pill/expiry/chevron wrap below).
+    <button className="dial-card" style={{ padding: 16, display: isMobile ? 'flex' : 'grid', flexWrap: 'wrap', gridTemplateColumns: '44px 1fr auto auto auto',
       gap: 16, alignItems: 'center', textAlign: 'left', cursor: 'pointer', background: 'var(--dial-surface)' }}
       onClick={() => dispatch({ type: 'route', route: { screen: 'domain', domain: domain.domain } })}>
       <div style={{ width: 44, height: 44, borderRadius: 'var(--dial-radius-sm)', background: 'var(--dial-accent)', color: '#fff',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 700, fontSize: 18 }}>
         {domain.domain.slice(1, 2).toUpperCase()}
       </div>
-      <div style={{ minWidth: 0 }}>
+      <div style={{ minWidth: 0, flex: '1 1 auto' }}>
         <div className="dial-mono" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>{domain.domain}</div>
         <div className="dial-muted" style={{ fontSize: 12, marginTop: 2 }}>
           Corporate domain · {domain.names.length} name{domain.names.length === 1 ? '' : 's'} issued
@@ -1137,7 +1143,7 @@ function NameRow({ name }) {
   // "Today" anchored at the seeded date so the demo's day-counts make sense.
   const expiresIn = Math.floor((new Date(name.expires) - new Date()) / (1000 * 60 * 60 * 24));
   return (
-    <button className="dial-card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', border: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface)', cursor: 'pointer' }}
+    <button className="dial-card m-wrap" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', border: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface)', cursor: 'pointer' }}
       onClick={() => dispatch({ type: 'route', route: { screen: 'name', name: name.name } })}>
       <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: 'var(--dial-accent-bg)', color: 'var(--dial-accent)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 600 }}>
@@ -1177,6 +1183,7 @@ function ScreenNameDetail() {
   ];
   const name = ownedNames.find(n => n.name === state.route.name);
   const [tab, setTab] = React.useState('profile');
+  const isMobile = useIsMobile();
   // Subnames are an enterprise/domain feature — normal (consumer) accounts
   // don't issue them, so the tab is hidden for them.
   const isEnterprise = (state.identity[state.org] || {}).kind === 'enterprise';
@@ -1214,13 +1221,13 @@ function ScreenNameDetail() {
         </button>
         <span style={{ flex: 1 }} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 28 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 28 }}>
         <div style={{ width: 56, height: 56, borderRadius: 'var(--dial-radius)', background: 'var(--dial-accent-bg)', color: 'var(--dial-accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 700, fontSize: 24 }}>
           {name.name[0].toUpperCase()}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="dial-mono" style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }}>{name.name}</div>
+        <div className="m-min60" style={{ flex: 1, minWidth: 0 }}>
+          <div className="dial-mono m-break" style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, letterSpacing: '-0.02em' }}>{name.name}</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span className="dial-pill ok"><CheckCircle size={11} /> Active</span>
             {/* Corporate subnames carry an editable owner/team; consumer names
@@ -1244,7 +1251,7 @@ function ScreenNameDetail() {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
+      <div className="m-tabs" style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
         {tabDefs.map(([k, label, count]) => (
           <button key={k}
             onClick={() => setTab(k)}
@@ -1277,6 +1284,7 @@ function ScreenNameDetail() {
 // org runs this name (stored as the name's text.owner record).
 function OwnerEditPill({ name }) {
   const { state, dispatch } = useDial();
+  const isMobile = useIsMobile();
   const current = name.owner && name.owner !== 'unassigned' ? name.owner : '';
   const [editing, setEditing] = React.useState(false);
   const [val, setVal] = React.useState(current);
@@ -1295,7 +1303,8 @@ function OwnerEditPill({ name }) {
     return (
       <button className="dial-pill" title="Change owner / team"
         onClick={() => { setVal(current); setEditing(true); }}
-        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', background: 'transparent' }}>
+        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', background: 'transparent',
+          padding: isMobile ? '7px 10px' : undefined }}>
         Owner · {current || 'unassigned'} <Edit size={10} stroke="var(--dial-muted)" />
       </button>
     );
@@ -1309,7 +1318,7 @@ function OwnerEditPill({ name }) {
         style={{ border: 0, outline: 'none', background: 'transparent', color: 'var(--dial-text)',
           font: 'inherit', width: 110, borderBottom: '1px solid var(--dial-border)' }} />
       <button className="dial-btn sm" onClick={save} disabled={busy}
-        style={{ padding: '1px 8px', fontSize: 11 }}>{busy ? '…' : 'Save'}</button>
+        style={{ padding: isMobile ? '7px 12px' : '1px 8px', fontSize: 11 }}>{busy ? '…' : 'Save'}</button>
     </span>
   );
 }
@@ -1448,7 +1457,7 @@ function ModuleRow({ org, name, mode, first, onToggle, onModes }) {
 
   return (
     <div style={{ borderTop: first ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', opacity: mode.active ? 1 : 0.62 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', opacity: mode.active ? 1 : 0.62 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
             {mode.title}
@@ -1469,7 +1478,7 @@ function ModuleRow({ org, name, mode, first, onToggle, onModes }) {
       {open && (
         <div style={{ padding: '4px 14px 16px', display: 'grid', gap: 12, background: 'var(--dial-bg-soft)',
           borderTop: 'var(--dial-border-w) solid var(--dial-border)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+          <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
             <div><label style={lbl}>Title</label><input style={inp} value={draft.title} onChange={e => set('title', e.target.value)} maxLength={120} /></div>
             <div><label style={lbl}>Status</label><input style={inp} value={draft.status} onChange={e => set('status', e.target.value)} maxLength={40} /></div>
           </div>
@@ -1483,7 +1492,7 @@ function ModuleRow({ org, name, mode, first, onToggle, onModes }) {
               <label style={lbl}>Detail cards</label>
               <div style={{ display: 'grid', gap: 8 }}>
                 {draft.minis.map(([a, b], i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr auto', gap: 8, alignItems: 'center' }}>
+                  <div key={i} className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr auto', gap: 8, alignItems: 'center' }}>
                     <input style={inp} value={a} onChange={e => setMini(i, 0, e.target.value)} placeholder="Label" maxLength={40} />
                     <input style={inp} value={b} onChange={e => setMini(i, 1, e.target.value)} placeholder="Value" maxLength={160} />
                     <button className="dial-btn sm" onClick={() => delMini(i)} title="Remove card">✕</button>
@@ -1608,7 +1617,7 @@ function AppearancesEditor({ org, name, mode, onModes }) {
     color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none', width: '100%' };
   const Form = (
     <div style={{ display: 'grid', gap: 8, padding: 12, background: 'var(--dial-bg-soft)', borderRadius: 'var(--dial-radius-sm)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 1fr', gap: 8 }}>
+      <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '80px 80px 1fr', gap: 8 }}>
         <input style={fieldStyle} placeholder="JUL" value={draft.mon} maxLength={4}
           onChange={e => setDraft(d => ({ ...d, mon: e.target.value }))} />
         <input style={fieldStyle} placeholder="01" value={draft.day} maxLength={3}
@@ -1618,7 +1627,7 @@ function AppearancesEditor({ org, name, mode, onModes }) {
       </div>
       <input style={fieldStyle} placeholder="Location · context" value={draft.sub}
         onChange={e => setDraft(d => ({ ...d, sub: e.target.value }))} />
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div className="m-wrap" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input style={{ ...fieldStyle, maxWidth: 180 }} placeholder="Attending / Speaking" value={draft.tag}
           onChange={e => setDraft(d => ({ ...d, tag: e.target.value }))} />
         <div style={{ flex: 1 }} />
@@ -1641,7 +1650,7 @@ function AppearancesEditor({ org, name, mode, onModes }) {
         {items.map((it, i) => (
           <div key={it.id} style={{ padding: '12px 14px', borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
             {editId === it.id ? Form : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ fontFamily: 'var(--dial-font-mono)', fontSize: 11, textAlign: 'center', minWidth: 40, color: 'var(--dial-muted)' }}>
                   <div>{it.mon}</div><strong style={{ fontSize: 15, color: 'var(--dial-text)' }}>{it.day}</strong>
                 </div>
@@ -1795,7 +1804,7 @@ function NameProfile({ name }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.mark}</div>
               <div style={{ width: 84, flexShrink: 0, fontSize: 13, fontWeight: 600 }}>{p.label}</div>
               <input value={form[p.key]} onChange={e => set(p.key, e.target.value)} placeholder={p.placeholder}
-                style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
+                style={{ flex: 1, minWidth: 0, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid var(--dial-border)',
                   color: 'var(--dial-text)', padding: '7px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12.5, outline: 'none' }} />
               {form[p.key] ? <button className="dial-iconbtn" title="Clear" onClick={() => set(p.key, '')}><X size={14} /></button> : <span style={{ width: 28 }} />}
             </div>
@@ -1816,6 +1825,7 @@ function NameProfile({ name }) {
 // deep link (with copy). Saves immediately; state comes from name.page_public.
 function PageSharing({ name }) {
   const { state, dispatch } = useDial();
+  const isMobile = useIsMobile();
   const isPublic = name.page_public !== false;
   const url = publicPageUrl(name.name);
   const [busy, setBusy] = React.useState(false);
@@ -1853,10 +1863,10 @@ function PageSharing({ name }) {
         </div>
         <button onClick={toggle} disabled={busy} role="switch" aria-checked={isPublic}
           title={isPublic ? 'Make private' : 'Make public'}
-          style={{ position: 'relative', width: 44, height: 26, borderRadius: 999, border: 0, flexShrink: 0,
+          style={{ position: 'relative', width: isMobile ? 52 : 44, height: isMobile ? 32 : 26, borderRadius: 999, border: 0, flexShrink: 0,
             cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
             background: isPublic ? 'var(--dial-accent)' : 'var(--dial-border)', transition: 'background .15s' }}>
-          <span style={{ position: 'absolute', top: 3, left: isPublic ? 21 : 3, width: 20, height: 20, borderRadius: '50%',
+          <span style={{ position: 'absolute', top: 3, left: isPublic ? (isMobile ? 23 : 21) : 3, width: isMobile ? 26 : 20, height: isMobile ? 26 : 20, borderRadius: '50%',
             background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.3)' }} />
         </button>
       </div>
@@ -1976,7 +1986,7 @@ function NameReceptionist({ name }) {
     color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 13, outline: 'none' };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+    <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <h3 className="dial-h3" style={{ margin: 0 }}>{cfg ? 'Receptionist' : 'Set up a receptionist'}</h3>
@@ -1987,7 +1997,7 @@ function NameReceptionist({ name }) {
         </div>
 
         <div className="dial-card" style={{ padding: 16, display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <div className="dial-field-label">Your name</div>
               <input value={form.owner_name} onChange={e => set('owner_name', e.target.value)} style={fieldStyle} placeholder="e.g. David Palmer" />
@@ -2202,7 +2212,7 @@ function EvmEditor({ name }) {
       <div className="dial-muted" style={{ fontSize: 11.5, marginBottom: 10 }}>
         Anyone sending to this name on an EVM chain will use this address.
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div className="m-wrap" style={{ display: 'flex', gap: 8 }}>
         <input value={value} onChange={e => setValue(e.target.value)} placeholder="0x…" autoFocus
           style={{ flex: 1, background: 'var(--dial-bg-soft)', border: 'var(--dial-border-w) solid ' + (value && !valid ? 'var(--dial-warn)' : 'var(--dial-border)'),
             color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)',
@@ -2265,7 +2275,7 @@ function NameNftCard({ name }) {
   const minted = !!(nft && nft.owner);
   return (
     <div className="dial-card" style={{ padding: 14, marginTop: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 36, height: 36, borderRadius: 'var(--dial-radius-sm)', background: 'linear-gradient(135deg,#6b46ff,#2b6cff)', color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'var(--dial-font-mono)', fontWeight: 700 }}>NFT</div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -2332,7 +2342,7 @@ function NameRecords({ name }) {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
+    <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <h3 className="dial-h3">Chain addresses</h3>
@@ -2408,7 +2418,7 @@ function NameRecords({ name }) {
         <h3 className="dial-h3">Lookup preview</h3>
         <div className="dial-card tint" style={{ padding: 14, fontFamily: 'var(--dial-font-mono)', fontSize: 11 }}>
           <div className="dial-muted">GET /v1/resolver/{name.name}</div>
-          <pre style={{ margin: '8px 0 0', padding: 0, background: 'transparent', border: 0, color: 'var(--dial-text)', whiteSpace: 'pre-wrap' }}>
+          <pre className="m-break" style={{ margin: '8px 0 0', padding: 0, background: 'transparent', border: 0, color: 'var(--dial-text)', whiteSpace: 'pre-wrap' }}>
 {`{
   "name": "${name.name}",
   "addresses": ${JSON.stringify(records, null, 2).split('\n').join('\n  ')},
@@ -2427,7 +2437,7 @@ function NameSubnames({ name }) {
   const subnames = name.subnames || [];
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <div>
           <h3 className="dial-h3" style={{ marginBottom: 2 }}>Subnames</h3>
           <div className="dial-muted" style={{ fontSize: 12 }}>
@@ -2454,19 +2464,19 @@ function NameSubnames({ name }) {
         </div>
       ) : (
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.4fr 1.4fr 90px', padding: '10px 16px',
+          <div className="m-hide" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.4fr 1.4fr 90px', padding: '10px 16px',
             borderBottom: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface-2)',
             fontSize: 11, letterSpacing: '0.04em', color: 'var(--dial-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
             <div>Subname</div><div>Owner</div><div>Canton</div><div>EVM</div><div></div>
           </div>
           {subnames.map((s, i) => (
-            <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.4fr 1.4fr 90px',
+            <div key={s.name} className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.4fr 1.4fr 90px',
               padding: '12px 16px', alignItems: 'center', fontSize: 13,
               borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
-              <div className="dial-mono" style={{ fontWeight: 600 }}>{s.name}</div>
+              <div className="dial-mono m-break" style={{ fontWeight: 600 }}>{s.name}</div>
               <div className="dial-muted" style={{ fontSize: 12 }}>{s.owner}</div>
-              <code className="dial-mono" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>{(s.records['canton:omnibus'] || '—').slice(0, 18) + ((s.records['canton:omnibus'] || '').length > 18 ? '…' : '')}</code>
-              <code className="dial-mono" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>{s.records['eip155:1'] || '—'}</code>
+              <code className="dial-mono m-break" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>{(s.records['canton:omnibus'] || '—').slice(0, 18) + ((s.records['canton:omnibus'] || '').length > 18 ? '…' : '')}</code>
+              <code className="dial-mono m-break" style={{ fontSize: 11, background: 'transparent', border: 0, padding: 0 }}>{s.records['eip155:1'] || '—'}</code>
               <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                 <button className="dial-iconbtn" title="Edit"><Edit size={14} /></button>
                 <button className="dial-iconbtn" title="Release"
@@ -2485,7 +2495,7 @@ function NameSubnames({ name }) {
 function NameSettings({ name }) {
   const { state, dispatch } = useDial();
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 880 }}>
+    <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 880 }}>
       <SettingCard title="Renew" desc={`Expires ${name.expires}. Renews for another year in USDC.`}
         action={<button className="dial-btn primary" onClick={() => renewName(state, dispatch, name.name)}>
           <Refresh size={14} stroke="#fff" /> Renew · 240 USDC
@@ -2516,6 +2526,7 @@ function ScreenDomainDetail() {
   const { state, dispatch } = useDial();
   const domain = (state.domains[state.org] || []).find(d => d.domain === state.route.domain);
   const [tab, setTab] = React.useState('names');
+  const isMobile = useIsMobile();
 
   if (!domain) {
     return <div className="dial-section"><div className="dial-card" style={{ padding: 24 }}>Domain not found.</div></div>;
@@ -2529,16 +2540,16 @@ function ScreenDomainDetail() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 28 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 28 }}>
         {isAvatarValue(domain.logo)
           ? <img src={domain.logo} alt="Company logo" style={{ width: 64, height: 64, borderRadius: 'var(--dial-radius)', objectFit: 'cover', border: 'var(--dial-border-w) solid var(--dial-border)', flexShrink: 0 }} />
           : <div style={{ width: 64, height: 64, borderRadius: 'var(--dial-radius)', background: 'var(--dial-accent)', color: '#fff', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--dial-font-mono)', fontWeight: 800, fontSize: 28 }}>
               {domain.domain.slice(1, 2).toUpperCase()}
             </div>}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-            <div className="dial-mono" style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em' }}>{domain.domain}</div>
+        <div className="m-min60" style={{ flex: 1, minWidth: 0 }}>
+          <div className="m-wrap" style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <div className="dial-mono m-break" style={{ fontSize: isMobile ? 24 : 30, fontWeight: 700, letterSpacing: '-0.02em' }}>{domain.domain}</div>
             <span className="dial-pill red">Corporate domain</span>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -2556,7 +2567,7 @@ function ScreenDomainDetail() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
+      <div className="m-tabs" style={{ display: 'flex', gap: 4, borderBottom: 'var(--dial-border-w) solid var(--dial-border)', marginBottom: 20 }}>
         {[
           ['names',    'Issued names', domain.names.length],
           ['company',  'Company',      null],
@@ -2656,7 +2667,7 @@ function DomainCompany({ domain }) {
         <div className="dial-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>From your DIAL-verified account.</div>
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
           {rows.map(([label, value], i) => (
-            <div key={label} style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 12, padding: '12px 16px',
+            <div key={label} className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 12, padding: '12px 16px',
               borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)', fontSize: 13 }}>
               <div className="dial-muted">{label}</div>
               <div style={{ fontWeight: label === 'Legal name' ? 600 : 500 }}>{value}</div>
@@ -2674,7 +2685,7 @@ function DomainNames({ domain }) {
   const shown = domain.names.filter(n => !filter || n.name.includes(filter) || (n.owner && n.owner.includes(filter)));
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
         <div style={{ flex: 1, maxWidth: 280 }}>
           <div className="dial-input-wrap" style={{ padding: '0 12px' }}>
             <Search size={14} stroke="var(--dial-muted)" />
@@ -2699,13 +2710,13 @@ function DomainNames({ domain }) {
         </div>
       ) : (
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 90px', padding: '10px 16px',
+          <div className="m-hide" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 90px', padding: '10px 16px',
             borderBottom: 'var(--dial-border-w) solid var(--dial-border)', background: 'var(--dial-surface-2)',
             fontSize: 11, letterSpacing: '0.04em', color: 'var(--dial-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
             <div>Name</div><div>Owner</div><div>On-chain identity</div><div></div>
           </div>
           {shown.map((s, i) => (
-            <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 90px',
+            <div key={s.name} className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 2.2fr 90px',
               padding: '12px 16px', alignItems: 'center', fontSize: 13,
               borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
               {/* Clicking the name opens its edit (detail) page. */}
@@ -2718,7 +2729,7 @@ function DomainNames({ domain }) {
               </button>
               <OwnerCell name={s} />
               {/* One chip per associated chain — full value in the tooltip. */}
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+              <div className="m-wrap" style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                 {s.records['canton:omnibus'] && (
                   <span className="dial-mono" title={s.records['canton:omnibus']}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700,
@@ -2800,7 +2811,7 @@ function OwnerCell({ name }) {
 function DomainSettings({ domain }) {
   const { state, dispatch } = useDial();
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 880 }}>
+    <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 880 }}>
       <SettingCard title="Renew domain" desc={`Expires ${domain.expires}. Renews annually in USDC. Names issued under this domain renew with it.`}
         action={<button className="dial-btn primary" onClick={() => renewDomain(state, dispatch, domain.domain)}><Refresh size={14} stroke="#fff" /> Renew · 2,400 USDC</button>} />
       <SettingCard title="Bulk import" desc="Upload a CSV to issue many names at once (e.g. one per cost-centre). Each row becomes a name under your domain."
@@ -2817,6 +2828,7 @@ function DomainSettings({ domain }) {
 // ─────────────────────────────────────────────────────────────
 function ScreenCart() {
   const { state, dispatch } = useDial();
+  const isMobile = useIsMobile();
   const items = state.cart;
   const verified = state.loggedIn && state.identity[state.org]?.verified;
 
@@ -2859,7 +2871,7 @@ function ScreenCart() {
 
   return (
     <div className="dial-section">
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 22 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 22 }}>
         <div>
           <span className="dial-eyebrow">Cart</span>
           <h1 className="dial-h2" style={{ fontSize: 26 }}>Your basket</h1>
@@ -2870,20 +2882,20 @@ function ScreenCart() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2.2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+      <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: '2.2fr 1fr', gap: 18, alignItems: 'flex-start' }}>
         {/* Items */}
         <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 0.9fr 36px', padding: '10px 16px',
+          <div className="m-hide" style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 0.9fr 36px', padding: '10px 16px',
             background: 'var(--dial-surface-2)', borderBottom: 'var(--dial-border-w) solid var(--dial-border)',
             fontSize: 11, letterSpacing: '0.04em', color: 'var(--dial-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
             <div>Name</div><div>Duration</div><div style={{ textAlign: 'right' }}>Subtotal</div><div></div>
           </div>
           {computed.map((row, i) => (
-            <div key={row.item.name} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 0.9fr 36px',
-              alignItems: 'center', padding: '12px 16px',
+            <div key={row.item.name} className="m-grid2" style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 0.9fr 36px',
+              alignItems: 'center', padding: '12px 16px', gap: isMobile ? 8 : undefined,
               borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
               <div>
-                <div className="dial-mono" style={{ fontWeight: 600, fontSize: 14 }}>{row.item.name}</div>
+                <div className="dial-mono m-break" style={{ fontWeight: 600, fontSize: 14 }}>{row.item.name}</div>
                 <div className="dial-muted" style={{ fontSize: 11, marginTop: 2 }}>
                   {row.tier} · {row.unit} USDC / year
                   {verified && <span className="dial-pill ok" style={{ marginLeft: 6, fontSize: 9 }}>{VERIFIED_DISCOUNT_PCT}% off</span>}
@@ -2891,7 +2903,7 @@ function ScreenCart() {
               </div>
               <div>
                 <select value={row.item.duration_years} onChange={e => dispatch({ type: 'cart-set-duration', index: i, years: Number(e.target.value) })}
-                  style={{ padding: '5px 8px', fontSize: 13, borderRadius: 'var(--dial-radius-sm)', border: 'var(--dial-border-w) solid var(--dial-border-strong, var(--dial-border))', background: 'var(--dial-surface)' }}>
+                  style={{ padding: isMobile ? '9px 10px' : '5px 8px', fontSize: 13, borderRadius: 'var(--dial-radius-sm)', border: 'var(--dial-border-w) solid var(--dial-border-strong, var(--dial-border))', background: 'var(--dial-surface)' }}>
                   <option value={1}>1 year</option>
                   <option value={2}>2 years</option>
                   <option value={3}>3 years</option>
@@ -3134,7 +3146,7 @@ function ScreenPublic() {
     const isPrivate = !!(err && err.response && err.response.private);
     return (
       <div style={{ maxWidth: 980, margin: '0 auto', padding: '24px 24px 70px', fontFamily: PUB.sans, color: PUB.ink }}>
-        <button onClick={back} style={pubBackBtn()}>← Back</button>
+        <button className="pub-back" onClick={back} style={pubBackBtn()}>← Back</button>
         <div style={{ background: PUB.card, border: '1px solid ' + PUB.hair, borderRadius: 20, padding: 40, textAlign: 'center' }}>
           <div style={{ fontWeight: 700, fontSize: 20 }}>{isPrivate ? 'This page is private.' : 'Nothing here yet.'}</div>
           <div style={{ color: PUB.muted, fontSize: 14, marginTop: 6 }}>
@@ -3165,9 +3177,22 @@ function ScreenPublic() {
   );
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', padding: '22px 24px 70px', fontFamily: PUB.sans, color: PUB.ink, lineHeight: 1.4 }}>
-      <style>{'@media(max-width:760px){.pub-hero{grid-template-columns:1fr !important}.pub-req{grid-template-columns:1fr !important}.pub-mini{grid-template-columns:1fr !important}.pub-appt{grid-template-columns:auto 1fr !important}}'}</style>
-      <button onClick={back} style={pubBackBtn()}>← Back</button>
+    <div className="pub-wrap" style={{ maxWidth: 980, margin: '0 auto', padding: '22px 24px 70px', fontFamily: PUB.sans, color: PUB.ink, lineHeight: 1.4 }}>
+      <style>{'@media(max-width:760px){'
+        + '.pub-hero{grid-template-columns:1fr !important;padding:28px 18px !important}'
+        + '.pub-hero h1{font-size:clamp(32px,10.5vw,44px) !important;overflow-wrap:anywhere}'
+        + '.pub-req{grid-template-columns:1fr !important}'
+        + '.pub-mini{grid-template-columns:1fr !important}'
+        + '.pub-appt{grid-template-columns:auto 1fr !important}'
+        + '.pub-wrap{padding:14px 12px 48px !important}'
+        + '.pub-sec{padding:26px 16px !important}'
+        + '.pub-sec h2{font-size:24px !important}'
+        + '.pub-back{padding:12px 6px !important}'
+        + '.pub-addr{gap:12px !important}'
+        + '.pub-addr>span:first-child{min-width:40px !important}'
+        + '.pub-addr button{padding:10px 14px !important}'
+        + '}'}</style>
+      <button className="pub-back" onClick={back} style={pubBackBtn()}>← Back</button>
 
       <div style={{ borderRadius: 26, overflow: 'hidden', boxShadow: '0 1px 3px rgba(22,19,13,.10), 0 26px 60px rgba(22,19,13,.16)' }}>
 
@@ -3226,7 +3251,7 @@ function ScreenPublic() {
 
         {/* MODS — every active mod stacked under each other (no tab switcher). */}
         {activeMods.map((m, i) => (
-          <section key={m.key} style={{ background: PUB.paper, padding: '30px 44px',
+          <section key={m.key} className="pub-sec" style={{ background: PUB.paper, padding: '30px 44px',
             borderTop: i === 0 ? '8px solid ' + PUB.red : '1px solid ' + PUB.hair }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
               <h2 style={{ fontSize: 32, letterSpacing: '-.045em', lineHeight: 1, fontWeight: 800, maxWidth: 560 }}>{m.title}</h2>
@@ -3244,7 +3269,7 @@ function ScreenPublic() {
 
         {/* ON-CHAIN ADDRESSES */}
         {addrRows.length > 0 && (
-          <section style={{ background: PUB.paper, padding: '34px 44px', borderTop: activeMods.length ? '1px solid ' + PUB.hair : 'none' }}>
+          <section className="pub-sec" style={{ background: PUB.paper, padding: '34px 44px', borderTop: activeMods.length ? '1px solid ' + PUB.hair : 'none' }}>
             <Eyebrow>On-chain addresses</Eyebrow>
             <h2 style={{ fontSize: 32, letterSpacing: '-.04em', lineHeight: 1, fontWeight: 700, margin: '8px 0 0' }}>Send to {firstName}</h2>
             <div style={{ marginTop: 16 }}>
@@ -3255,7 +3280,7 @@ function ScreenPublic() {
         )}
 
         {/* ROUTE A REQUEST — the receptionist */}
-        <section ref={reqRef} style={{ background: PUB.black, color: PUB.cream, padding: 44 }}>
+        <section ref={reqRef} className="pub-sec" style={{ background: PUB.black, color: PUB.cream, padding: 44 }}>
           <div className="pub-req" style={{ display: 'grid', gridTemplateColumns: '.85fr 1.15fr', gap: 30, alignItems: 'start' }}>
             <div>
               <Eyebrow color={PUB.sand}>Route a request</Eyebrow>
@@ -3292,7 +3317,7 @@ function AddrRow({ a }) {
   const copy = () => { try { navigator.clipboard?.writeText(a.value); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch {} };
   const short = a.value.length > 32 ? a.value.slice(0, 16) + '…' + a.value.slice(-12) : a.value;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '16px 0', borderTop: '1px solid ' + PUB.hair }}>
+    <div className="pub-addr" style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '16px 0', borderTop: '1px solid ' + PUB.hair }}>
       <span style={{ fontFamily: PUB.mono, fontSize: 14, fontWeight: 700, letterSpacing: '.02em', minWidth: 52, color: PUB.ink }}>{a.mark}</span>
       <span style={{ flex: 1, minWidth: 0 }}>
         <b style={{ fontWeight: 700, fontSize: 16 }}>{a.label}</b>
@@ -3505,10 +3530,10 @@ function ScreenAdmin() {
       </div>
       <div className="dial-card" style={{ padding: 0, overflow: 'hidden' }}>
         {users.map((user, i) => (
-          <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+          <div key={user.id} className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
             borderTop: i === 0 ? 0 : 'var(--dial-border-w) solid var(--dial-border)' }}>
             <div className="dial-avatar" style={{ width: 34, height: 34, fontSize: 12, flexShrink: 0 }}>{initialsOf(user.name)}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="m-min60" style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{user.name}</div>
               <div className="dial-muted" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {user.email || '—'} · {user.provider} · <code className="dial-mono" style={{ fontSize: 11 }}>{user.owner_address.slice(0, 12)}…</code>

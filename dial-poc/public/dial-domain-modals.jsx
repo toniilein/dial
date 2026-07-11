@@ -16,6 +16,7 @@ function RegisterDomainFlow() {
   const { state, dispatch } = useDial();
   const m = state.modal;
   const id = state.identity[state.org];
+  const isMobile = useIsMobile();
 
   const [label, setLabel] = React.useState(m.label || '');
   const norm = dialNormalise(label);
@@ -84,7 +85,7 @@ function RegisterDomainFlow() {
             ? <>
                 <button className="dial-btn" onClick={back} disabled={paying}><_DAL size={14} /> Back</button>
                 <button className="dial-btn primary lg" onClick={runPay} disabled={paying}>
-                  {paying ? <><_DSP size={14} stroke="#fff" /> Submitting via Pairpoint AA…</> : <><_DD size={14} stroke="#fff" /> Pay {(totalUsdc + networkFee).toLocaleString()} USDC</>}
+                  {paying ? <><_DSP size={14} stroke="#fff" /> {isMobile ? 'Submitting…' : 'Submitting via Pairpoint AA…'}</> : <><_DD size={14} stroke="#fff" /> Pay {(totalUsdc + networkFee).toLocaleString()} USDC</>}
                 </button>
               </>
             : <>
@@ -136,9 +137,9 @@ function DomStepLabel({ label, setLabel, norm, avail, checking, price, duration,
 
       {label && !norm.valid && <div style={{ color: 'var(--dial-warn)', fontSize: 12, marginTop: 6 }}>{norm.reason}</div>}
       {norm.valid && avail && !avail.available && (
-        <div className="dial-card" style={{ padding: 12, marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="dial-card m-wrap" style={{ padding: 12, marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="dial-pill warn">{avail.reason === 'reserved' ? 'Reserved' : 'Taken'}</span>
-          <code className="dial-mono" style={{ fontSize: 14, fontWeight: 600, background: 'transparent', border: 0, padding: 0 }}>{display}</code>
+          <code className="dial-mono m-break" style={{ fontSize: 14, fontWeight: 600, background: 'transparent', border: 0, padding: 0 }}>{display}</code>
           <span className="dial-muted" style={{ fontSize: 12 }}>
             {avail.reason === 'reserved' ? 'On the reserved / trademark blocklist.' : 'Already registered.'}
           </span>
@@ -147,10 +148,10 @@ function DomStepLabel({ label, setLabel, norm, avail, checking, price, duration,
 
       {norm.valid && avail && avail.available && price && (
         <>
-          <div className="dial-card" style={{ padding: 14, marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="dial-card m-wrap" style={{ padding: 14, marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
             <span className="dial-pill ok"><_DCC size={11} /> Available</span>
-            <div style={{ flex: 1 }}>
-              <div className="dial-mono" style={{ fontSize: 16, fontWeight: 600 }}>{display}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="dial-mono m-break" style={{ fontSize: 16, fontWeight: 600 }}>{display}</div>
               <div className="dial-muted" style={{ fontSize: 12 }}>{price.tier}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -160,7 +161,7 @@ function DomStepLabel({ label, setLabel, norm, avail, checking, price, duration,
           </div>
 
           <div className="dial-field-label" style={{ marginTop: 16 }}>Registration duration</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          <div className="m-grid1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             {[1, 2, 3].map(y => (
               <button key={y} onClick={() => setDuration(y)} className="dial-card"
                 style={{
@@ -224,7 +225,7 @@ function DomStepDone({ label }) {
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
         <_DCK size={32} stroke="var(--dial-accent)" strokeWidth={2.2} />
       </div>
-      <div className="dial-h2" style={{ fontSize: 24 }}>.{label} is yours.</div>
+      <div className="dial-h2 m-break" style={{ fontSize: 24 }}>.{label} is yours.</div>
       <div className="dial-muted" style={{ fontSize: 13, marginTop: 6, maxWidth: 380, marginLeft: 'auto', marginRight: 'auto' }}>
         You can now issue names under your corporate domain. On-chain copies are propagating to Canton + EVM.
       </div>
@@ -309,7 +310,10 @@ function IssueNameModal() {
 
       <div style={{ marginBottom: 14 }}>
         <div className="dial-field-label">Name</div>
-        <div className="dial-input-wrap">
+        {/* ≤760px: let the input shrink and ellipsize a long parent suffix —
+            .dial-input-wrap is shell-owned and has no mobile suffix rule. */}
+        <style>{'@media(max-width:760px){.dial-issuename-wrap input{min-width:0}.dial-issuename-wrap .suffix{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}'}</style>
+        <div className="dial-input-wrap dial-issuename-wrap">
           <input value={label} onChange={e => setLabel(e.target.value)} placeholder="finance" autoFocus />
           <span className="suffix">{m.parent}</span>
         </div>
@@ -381,7 +385,9 @@ function AssociateAddresses({ name }) {
     color: 'var(--dial-text)', padding: '8px 10px', borderRadius: 'var(--dial-radius-sm)', fontSize: 12, fontFamily: 'var(--dial-font-mono)', outline: 'none' };
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div className="dial-assoc" style={{ display: 'grid', gap: 12 }}>
+      {/* ≤760px: lift shell-owned .dial-btn.sm (~26px) up to a 40px touch target. */}
+      <style>{'@media(max-width:760px){.dial-assoc .dial-btn.sm{padding:9px 12px;min-height:40px}}'}</style>
       {/* Canton id */}
       <div className="dial-card" style={{ padding: 14 }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -456,6 +462,7 @@ function AssociateNameModal() {
 function ReleaseIssuedNameModal() {
   const { state, dispatch } = useDial();
   const m = state.modal;
+  const isMobile = useIsMobile();
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState(null);
   const close = () => dispatch({ type: 'modal', modal: null });
@@ -475,7 +482,7 @@ function ReleaseIssuedNameModal() {
         <>
           <button className="dial-btn" onClick={close} disabled={working} autoFocus>Cancel</button>
           <button className="dial-btn danger" onClick={run} disabled={working}>
-            {working ? <><_DSP size={14} /> Releasing…</> : <>Release {m.name}</>}
+            {working ? <><_DSP size={14} /> Releasing…</> : (isMobile ? 'Release' : <>Release {m.name}</>)}
           </button>
         </>
       }>
@@ -506,6 +513,7 @@ function ReleaseIssuedNameModal() {
 function ReleaseDomainModal() {
   const { state, dispatch } = useDial();
   const m = state.modal;
+  const isMobile = useIsMobile();
   const [confirm, setConfirm] = React.useState('');
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState(null);
@@ -526,7 +534,7 @@ function ReleaseDomainModal() {
         <>
           <button className="dial-btn" onClick={close} disabled={working}>Cancel</button>
           <button className="dial-btn danger" onClick={run} disabled={!canRelease || working}>
-            {working ? <><_DSP size={14} /> Releasing…</> : <>Release {m.domain}</>}
+            {working ? <><_DSP size={14} /> Releasing…</> : (isMobile ? 'Release' : <>Release {m.domain}</>)}
           </button>
         </>
       }>
